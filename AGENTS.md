@@ -1,10 +1,12 @@
 # Development guardrails
 
 - Keep this repository independent from the frozen Book Reading CBT project.
-- Preserve the Phase 0 foundation, Phase 1 question bank, Phase 2 Assessment Engine, Phase 3 candidate examination delivery, and Phase 4 objective marking/result release. Do not add analytics, AI, manual marking, proctoring, or later-phase features unless requested.
+- Preserve the Phase 0 foundation, Phase 1 question bank, Phase 2 Assessment Engine, Phase 3 candidate examination delivery, Phase 4 objective marking/result release, Phase 5 security/integrity controls, and Phase 6 institutional SaaS foundation. Do not add billing, payments, subscriptions, analytics, AI, manual marking, proctoring, or later-phase features unless requested.
 - Keep the architecture a lean Django modular monolith with shared-schema tenancy.
 - Use email as the custom User authentication identity. Never attach a single institution role directly to User.
 - Every institution-owned record must be filtered server-side by active institution memberships. Never trust client-side filtering or permit cross-tenant reassignment.
+- Institution context for management/dashboard operations must be explicitly selected when a user has multiple manageable institutions; validate context against active memberships. Keep institution-level roles on InstitutionMembership, never on User.
+- Institution admins may manage profile/contact information and subordinate teacher/examiner/student memberships in their tenant. They cannot grant platform/institution admin roles or activate/deactivate the institution itself. Keep platform admin and Django staff/superuser authority distinct.
 - Apply role checks to list endpoints as well as object actions; object permissions alone do not protect collection responses.
 - Keep institution-specific candidate IDs, group codes, and subject codes protected by database constraints.
 - Keep question-bank topics/questions and assessments scoped to active institution memberships. Never accept tenant assignment, calculated total marks, or workflow transitions on trust from the client.

@@ -194,10 +194,12 @@ class PhaseFiveSecurityTests(APITestCase):
         self.client.force_authenticate(self.teacher_a)
         self.assertEqual(self.client.post("/api/v1/users/", {"role": "platform_admin"}, format="json").status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_memberships_have_no_unprivileged_api_route(self):
+    def test_membership_route_rejects_unprivileged_user(self):
         self.client.force_authenticate(self.student_a)
+        before = InstitutionMembership.objects.count()
         response = self.client.post("/api/v1/memberships/", {"role": "platform_admin"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(InstitutionMembership.objects.count(), before)
 
     def test_candidate_question_response_omits_correctness_and_explanation(self):
         self.client.force_authenticate(self.student_a)

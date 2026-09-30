@@ -46,7 +46,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication", "rest_framework.authentication.BasicAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    # Anonymous API requests and sensitive, authenticated mutations are throttled per user.
+    # Anonymous API requests are throttled by client IP; sensitive mutations use per-user scopes.
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.AnonRateThrottle"],
     "DEFAULT_THROTTLE_RATES": {"anon": "120/hour", "attempt_start": "300/hour",
                                "attempt_submit": "60/minute",

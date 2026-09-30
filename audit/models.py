@@ -13,6 +13,8 @@ class AuditEvent(models.Model):
         RESULT_MARKED = "result_marked", "Result marked"
         RESULT_PUBLISHED = "result_published", "Result published"
         RESULT_WITHHELD = "result_withheld", "Result withheld"
+        INSTITUTION_PROFILE_UPDATED = "institution_profile_updated", "Institution profile updated"
+        MEMBERSHIP_CHANGED = "membership_changed", "Institution membership changed"
 
     institution = models.ForeignKey("institutions.Institution", on_delete=models.PROTECT, related_name="audit_events")
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="audit_events")
