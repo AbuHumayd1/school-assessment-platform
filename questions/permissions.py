@@ -1,6 +1,6 @@
 from rest_framework.permissions import BasePermission
 
-from .tenancy import APPROVE_ROLES, READ_ROLES, REVIEW_ROLES, WRITE_ROLES, has_question_role, institution_ids_for_question_bank
+from .tenancy import APPROVE_ROLES, READ_ROLES, REVIEW_ROLES, WRITE_ROLES, has_question_role, institution_ids_for_question_bank, is_platform_admin
 
 
 class CanAccessQuestionBank(BasePermission):
@@ -17,9 +17,9 @@ class CanManageTopics(CanAccessQuestionBank):
             return False
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return super().has_permission(request, view)
-        if request.user.is_superuser or request.user.institution_memberships.filter(is_active=True, role="platform_admin").exists():
+        if is_platform_admin(request.user):
             return True
-        return request.user.institution_memberships.filter(is_active=True, role__in=WRITE_ROLES).exists()
+        return request.user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=WRITE_ROLES).exists()
 
     def has_object_permission(self, request, view, obj):
         if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -32,9 +32,9 @@ class CanManageQuestionBank(BasePermission):
         user = request.user
         if not user or not user.is_authenticated:
             return False
-        if user.is_superuser or user.institution_memberships.filter(is_active=True, role="platform_admin").exists():
+        if is_platform_admin(user):
             return True
-        return user.institution_memberships.filter(is_active=True, role__in=WRITE_ROLES).exists()
+        return user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=WRITE_ROLES).exists()
 
 
 class CanEditQuestion(CanManageQuestionBank):
@@ -67,9 +67,9 @@ class CanReviewQuestion(CanManageQuestionBank):
         user = request.user
         if not user or not user.is_authenticated:
             return False
-        if user.is_superuser or user.institution_memberships.filter(is_active=True, role="platform_admin").exists():
+        if is_platform_admin(user):
             return True
-        return user.institution_memberships.filter(is_active=True, role__in=REVIEW_ROLES).exists()
+        return user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=REVIEW_ROLES).exists()
 
     def has_object_permission(self, request, view, obj):
         return has_question_role(request.user, obj.institution_id, REVIEW_ROLES)
@@ -80,9 +80,9 @@ class CanApproveQuestion(CanReviewQuestion):
         user = request.user
         if not user or not user.is_authenticated:
             return False
-        if user.is_superuser or user.institution_memberships.filter(is_active=True, role="platform_admin").exists():
+        if is_platform_admin(user):
             return True
-        return user.institution_memberships.filter(is_active=True, role__in=APPROVE_ROLES).exists()
+        return user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=APPROVE_ROLES).exists()
 
     def has_object_permission(self, request, view, obj):
         return has_question_role(request.user, obj.institution_id, APPROVE_ROLES)

@@ -128,6 +128,10 @@ class AssessmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"attempt_limit": "Attempt limit must be positive."})
 
         question_data = attrs.get("assessment_questions")
+        if self.instance and question_data is not None:
+            from attempts.models import Attempt
+            if Attempt.objects.filter(assessment=self.instance).exists():
+                raise serializers.ValidationError({"questions": "Assessment questions cannot be changed after an attempt starts."})
         if question_data is None and self.instance:
             specs = [{"question": row.question, "order": row.order, "marks": row.marks} for row in self.instance.assessment_questions.select_related("question")]
         elif question_data is not None:

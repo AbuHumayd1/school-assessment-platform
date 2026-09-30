@@ -6,10 +6,19 @@ STAFF_ROLES = MANAGER_ROLES | {"teacher", "examiner"}
 class InstitutionScopedPermission(BasePermission):
     allowed_roles = STAFF_ROLES
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated)
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser or user.institution_memberships.filter(
+            is_active=True, institution__is_active=True, role="platform_admin",
+        ).exists():
+            return True
+        return user.institution_memberships.filter(
+            is_active=True, institution__is_active=True, role__in=self.allowed_roles,
+        ).exists()
     def has_object_permission(self, request, view, obj):
         from .querysets import can_manage_institution
-        if request.user.is_superuser or request.user.institution_memberships.filter(is_active=True, role="platform_admin").exists():
+        if request.user.is_superuser or request.user.institution_memberships.filter(is_active=True, institution__is_active=True, role="platform_admin").exists():
             return True
         institution = getattr(obj, "institution", obj)
         return can_manage_institution(request.user, institution.pk, self.allowed_roles)

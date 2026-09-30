@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -121,6 +121,25 @@ class Assessment(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.select_for_update().filter(pk=self.pk).first()
+            if original:
+                from attempts.models import Attempt
+                has_attempts = Attempt.objects.filter(assessment_id=self.pk).exists()
+                protected = (
+                    "institution_id", "title", "description", "assessment_type", "subject_id", "group_id",
+                    "duration_minutes", "pass_mark", "start_at", "end_at", "attempt_limit", "resume_allowed",
+                    "randomize_questions", "randomize_options", "security_level", "result_visibility",
+                    "candidate_access", "review_allowed", "result_release_mode",
+                )
+                if has_attempts and any(getattr(original, field) != getattr(self, field) for field in protected):
+                    raise ValidationError("Assessment configuration cannot be changed after an attempt has started.")
+                if has_attempts and original.status != self.status and self.status == self.Status.DRAFT:
+                    raise ValidationError("An assessment with attempt history cannot be reopened as a draft.")
+        super().save(*args, **kwargs)
+
     def validate_configuration(self, question_specs=None, *, require_questions=False, require_schedule=False):
         """Validate persisted or prospective question rows before review and scheduling."""
         errors = {}
@@ -227,6 +246,35 @@ class AssessmentQuestion(models.Model):
             errors["marks"] = "Marks must be positive."
         if errors:
             raise ValidationError(errors)
+
+    def _assessment_has_attempts(self, assessment_id=None):
+        from attempts.models import Attempt
+        assessment_id = assessment_id or self.assessment_id
+        return bool(assessment_id and Attempt.objects.filter(assessment_id=assessment_id).exists())
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.get(pk=self.pk)
+            from assessments.models import Assessment
+            Assessment.objects.select_for_update().get(pk=original.assessment_id)
+            if self.assessment_id != original.assessment_id:
+                Assessment.objects.select_for_update().get(pk=self.assessment_id)
+            if self._assessment_has_attempts(original.assessment_id) or self._assessment_has_attempts():
+                protected = ("assessment_id", "question_id", "order", "marks")
+                if any(getattr(original, field) != getattr(self, field) for field in protected):
+                    raise ValidationError("Assessment question configuration is frozen after an attempt starts.")
+        elif not self.pk and self._assessment_has_attempts():
+            raise ValidationError("Questions cannot be added after an attempt starts.")
+        super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        from assessments.models import Assessment
+        Assessment.objects.select_for_update().get(pk=self.assessment_id)
+        if self._assessment_has_attempts():
+            raise ValidationError("Assessment questions cannot be removed after an attempt starts.")
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.assessment}: question {self.question_id}"

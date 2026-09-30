@@ -58,7 +58,7 @@ class CandidateExamQuestionSerializer(serializers.ModelSerializer):
         return {"id": obj.question_id, "text": obj.question.text}
 
     def get_marks(self, obj):
-        return obj.attempt.assessment.assessment_questions.get(question_id=obj.question_id).marks
+        return obj.marks_available
 
     def get_selected_options(self, obj):
         answer = Answer.objects.filter(attempt=obj.attempt, question_id=obj.question_id).first()

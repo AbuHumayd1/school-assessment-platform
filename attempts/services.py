@@ -8,6 +8,8 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
 from assessments.models import Assessment, AssessmentQuestion
+from audit.models import AuditEvent
+from audit.services import record_event
 from candidates.models import Candidate
 from groups.models import GroupMembership
 from questions.models import Question
@@ -97,11 +99,15 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
             ).first()
             if active:
                 if now >= active.expires_at:
-                    expire_attempt(active, now)
+                    expire_attempt(active, now, actor=user)
                 else:
                     if not assessment.resume_allowed:
                         raise AttemptConflict("An active attempt already exists and resume is disabled.")
                     return active, False
+            rows = _validate_assessment_for_candidate(assessment, candidate, now)
+            question_ids = [row.question_id for row in rows]
+            # Lock questions while the validated content and options are copied into the attempt.
+            list(Question.objects.select_for_update().filter(pk__in=question_ids).order_by("pk").values_list("pk", flat=True))
             rows = _validate_assessment_for_candidate(assessment, candidate, now)
             used = Attempt.objects.filter(candidate=candidate, assessment=assessment).count()
             if used >= assessment.attempt_limit:
@@ -129,6 +135,8 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
                     AttemptQuestionOption(attempt_question=attempt_question, option=option, order=position)
                     for position, option in enumerate(options, start=1)
                 ])
+            record_event(institution=assessment.institution, actor=user, event_type=AuditEvent.Type.ATTEMPT_STARTED, resource=attempt,
+                         metadata={"assessment_id": assessment.pk})
             return attempt, True
     except IntegrityError:
         # A concurrent start may win the unique attempt-number race; return that active session.
@@ -138,20 +146,27 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
         raise AttemptConflict("A concurrent request changed the attempt state. Refresh and retry.")
 
 
-def expire_attempt(attempt, now=None):
+@transaction.atomic
+def expire_attempt(attempt, now=None, *, actor=None):
     now = now or timezone.now()
-    if attempt.status == Attempt.Status.IN_PROGRESS and now >= attempt.expires_at:
-        attempt.status = Attempt.Status.EXPIRED
+    locked = Attempt.objects.select_for_update().select_related("institution").get(pk=attempt.pk)
+    if locked.status == Attempt.Status.IN_PROGRESS and now >= locked.expires_at:
+        locked.status = Attempt.Status.EXPIRED
         # submitted_at records an explicit candidate submission only; expiry is represented by status.
-        attempt.save(update_fields=("status", "updated_at"))
+        locked.save(update_fields=("status", "updated_at"))
+        attempt.status = locked.status
+        attempt.updated_at = locked.updated_at
+        record_event(institution=locked.institution, actor=actor, event_type=AuditEvent.Type.ATTEMPT_EXPIRED, resource=locked)
         return True
+    attempt.status = locked.status
     return False
 
 
 def lock_candidate_attempt(user, attempt_id):
     try:
         return Attempt.objects.select_for_update().select_related("assessment", "candidate", "institution").get(
-            pk=attempt_id, candidate__user=user,
+            pk=attempt_id, candidate__user=user, candidate__status=Candidate.Status.ACTIVE,
+            institution__is_active=True,
         )
     except Attempt.DoesNotExist:
         raise NotFound()

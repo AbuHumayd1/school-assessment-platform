@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from attempts.models import Attempt
@@ -72,34 +73,40 @@ class MyResultsView(APIView):
 
 
 class AttemptMarkView(APIView):
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "result_mark"
     @transaction.atomic
     def post(self, request, attempt_id):
         _require_role(request.user, MARKER_ROLES)
         attempt = get_object_or_404(Attempt.objects.select_related("institution"), pk=attempt_id,
                                     institution_id__in=institution_ids(request.user, MARKER_ROLES))
         _require_role(request.user, MARKER_ROLES, attempt.institution_id)
-        result = mark_attempt(attempt.pk)
+        result = mark_attempt(attempt.pk, actor=request.user)
         result = Result.objects.select_related("candidate", "assessment").prefetch_related("questions__attempt_question").get(pk=result.pk)
         return Response(StaffResultSerializer(result).data)
 
 
 class ResultPublishView(APIView):
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "result_publish"
     @transaction.atomic
     def post(self, request, result_id):
         _require_role(request.user, ADMIN_ROLES)
         result = get_object_or_404(Result.objects.select_related("institution"), pk=result_id,
                                    institution_id__in=institution_ids(request.user, ADMIN_ROLES))
         _require_role(request.user, ADMIN_ROLES, result.institution_id)
-        result = publish_result(result.pk)
+        result = publish_result(result.pk, actor=request.user)
         return Response(StaffResultSerializer(Result.objects.select_related("candidate", "assessment").prefetch_related("questions__attempt_question").get(pk=result.pk)).data)
 
 
 class ResultWithholdView(APIView):
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "result_withhold"
     @transaction.atomic
     def post(self, request, result_id):
         _require_role(request.user, ADMIN_ROLES)
         result = get_object_or_404(Result.objects.select_related("institution"), pk=result_id,
                                    institution_id__in=institution_ids(request.user, ADMIN_ROLES))
         _require_role(request.user, ADMIN_ROLES, result.institution_id)
-        result = withhold_result(result.pk)
+        result = withhold_result(result.pk, actor=request.user)
         return Response(StaffResultSerializer(Result.objects.select_related("candidate", "assessment").prefetch_related("questions__attempt_question").get(pk=result.pk)).data)

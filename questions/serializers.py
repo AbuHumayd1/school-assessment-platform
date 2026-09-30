@@ -142,6 +142,10 @@ class QuestionSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def update(self, instance, validated_data):
         options = validated_data.pop("options", None)
+        if options is not None:
+            from attempts.models import AttemptQuestion
+            if AttemptQuestion.objects.filter(question=instance).exists():
+                raise serializers.ValidationError({"options": "Question options cannot be changed after an attempt starts."})
         for field, value in validated_data.items():
             setattr(instance, field, value)
         instance.save()

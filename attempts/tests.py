@@ -189,12 +189,12 @@ class CandidateAttemptAPITests(APITestCase):
         self.assertEqual(self.begin().attempt_number, 1)
 
     def test_attempt_number_increments_for_same_candidate_and_assessment(self):
+        self.assessment.attempt_limit = 2
+        self.assessment.save(update_fields=("attempt_limit",))
         first = self.begin()
         first.status = Attempt.Status.SUBMITTED
         first.submitted_at = timezone.now()
         first.save(update_fields=("status", "submitted_at"))
-        self.assessment.attempt_limit = 2
-        self.assessment.save(update_fields=("attempt_limit",))
         second = self.begin()
         self.assertEqual(second.attempt_number, 2)
 
@@ -212,11 +212,11 @@ class CandidateAttemptAPITests(APITestCase):
         self.assertEqual(self.start().status_code, 403)
 
     def test_attempt_limit_two_allows_second_attempt(self):
+        self.assessment.attempt_limit = 2
+        self.assessment.save(update_fields=("attempt_limit",))
         first = self.begin()
         first.status = Attempt.Status.SUBMITTED
         first.save(update_fields=("status",))
-        self.assessment.attempt_limit = 2
-        self.assessment.save(update_fields=("attempt_limit",))
         self.assertEqual(self.start().status_code, 201)
 
     def test_duplicate_start_returns_existing_attempt(self):
@@ -232,9 +232,9 @@ class CandidateAttemptAPITests(APITestCase):
         self.assertEqual(response.data["id"], attempt.pk)
 
     def test_active_attempt_not_resumed_when_resume_disabled(self):
-        self.begin()
         self.assessment.resume_allowed = False
         self.assessment.save(update_fields=("resume_allowed",))
+        self.begin()
         self.assertEqual(self.start().status_code, 409)
 
     def test_client_cannot_choose_candidate_or_attempt_number(self):

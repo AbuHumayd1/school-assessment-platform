@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from assessments.models import Assessment
@@ -35,6 +36,8 @@ def _linked_assessment_institutions(user):
 
 class AttemptStartView(APIView):
     permission_classes = (IsCandidateUser,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "attempt_start"
 
     def post(self, request):
         serializer = StartAttemptSerializer(data=request.data)
@@ -71,7 +74,7 @@ class AttemptListView(APIView):
         data = []
         now = timezone.now()
         for attempt in queryset:
-            if expire_attempt(attempt, now):
+            if expire_attempt(attempt, now, actor=request.user):
                 attempt.refresh_from_db()
             serializer_class = CandidateAttemptSerializer if attempt.candidate.user_id == request.user.pk else StaffAttemptSerializer
             data.append(serializer_class(attempt).data)
@@ -90,7 +93,7 @@ class AttemptDetailView(APIView):
             )
         except Attempt.DoesNotExist:
             raise NotFound()
-        expire_attempt(attempt)
+        expire_attempt(attempt, actor=request.user)
         if attempt.candidate.user_id == request.user.pk:
             return Response(CandidateAttemptSerializer(attempt).data)
         return Response(StaffAttemptSerializer(attempt).data)
@@ -98,11 +101,13 @@ class AttemptDetailView(APIView):
 
 class AttemptSubmitView(APIView):
     permission_classes = (IsCandidateUser,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "attempt_submit"
 
     @transaction.atomic
     def post(self, request, attempt_id):
         attempt = lock_candidate_attempt(request.user, attempt_id)
-        if expire_attempt(attempt):
+        if expire_attempt(attempt, actor=request.user):
             return Response({"detail": "Attempt has expired."}, status=status.HTTP_409_CONFLICT)
         if attempt.status != Attempt.Status.IN_PROGRESS:
             raise AttemptConflict("Only an in-progress attempt can be submitted.")
@@ -111,6 +116,9 @@ class AttemptSubmitView(APIView):
         attempt.submitted_at = now
         attempt.last_activity_at = now
         attempt.save(update_fields=("status", "submitted_at", "last_activity_at", "updated_at"))
+        from audit.models import AuditEvent
+        from audit.services import record_event
+        record_event(institution=attempt.institution, actor=request.user, event_type=AuditEvent.Type.ATTEMPT_SUBMITTED, resource=attempt)
         return Response({
             "id": attempt.pk, "status": attempt.status, "submitted_at": attempt.submitted_at,
             "detail": "Attempt submitted. Results are not calculated in this phase.",
@@ -123,7 +131,7 @@ class AttemptQuestionListView(APIView):
     @transaction.atomic
     def get(self, request, attempt_id):
         attempt = lock_candidate_attempt(request.user, attempt_id)
-        expire_attempt(attempt)
+        expire_attempt(attempt, actor=request.user)
         queryset = attempt.attempt_questions.select_related("question").prefetch_related("ordered_options__option").order_by("order")
         return Response(CandidateNavigationSerializer(queryset, many=True).data)
 
@@ -134,7 +142,7 @@ class AttemptQuestionDetailView(APIView):
     @transaction.atomic
     def get(self, request, attempt_id, question_id):
         attempt = lock_candidate_attempt(request.user, attempt_id)
-        expire_attempt(attempt)
+        expire_attempt(attempt, actor=request.user)
         row = get_object_or_404(
             AttemptQuestion.objects.select_related("question", "attempt__assessment").prefetch_related("ordered_options__option"),
             attempt=attempt, question_id=question_id,
@@ -155,7 +163,7 @@ class AttemptAnswerView(APIView):
 
     def _save(self, request, attempt_id, question_id):
         attempt = lock_candidate_attempt(request.user, attempt_id)
-        if expire_attempt(attempt):
+        if expire_attempt(attempt, actor=request.user):
             return Response({"detail": "Attempt has expired; answers are locked."}, status=status.HTTP_409_CONFLICT)
         if attempt.status != Attempt.Status.IN_PROGRESS:
             raise AttemptConflict("Answers can only be changed during an in-progress attempt.")
@@ -197,7 +205,7 @@ class AttemptReviewFlagView(APIView):
     @transaction.atomic
     def patch(self, request, attempt_id, question_id):
         attempt = lock_candidate_attempt(request.user, attempt_id)
-        if expire_attempt(attempt):
+        if expire_attempt(attempt, actor=request.user):
             return Response({"detail": "Attempt has expired; review state is locked."}, status=status.HTTP_409_CONFLICT)
         if attempt.status != Attempt.Status.IN_PROGRESS:
             raise AttemptConflict("Review state can only change during an in-progress attempt.")

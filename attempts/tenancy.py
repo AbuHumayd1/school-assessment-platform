@@ -12,8 +12,9 @@ def candidates_for_user(user):
 
 
 def is_attempt_staff(user, institution_id):
-    if user.is_superuser or user.institution_memberships.filter(is_active=True, role="platform_admin").exists():
-        return True
+    from institutions.models import Institution
+    if user.is_superuser or user.institution_memberships.filter(is_active=True, institution__is_active=True, role="platform_admin").exists():
+        return Institution.objects.filter(pk=institution_id, is_active=True).exists()
     return InstitutionMembership.objects.filter(
         user=user, institution_id=institution_id, role__in=STAFF_ATTEMPT_ROLES,
         is_active=True, institution__is_active=True,

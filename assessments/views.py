@@ -50,9 +50,14 @@ class AssessmentViewSet(viewsets.ModelViewSet):
             self._assessment_institution = assessment_institution_for_request(self.request)
         serializer.save()
 
+    @transaction.atomic
     def _transition(self, assessment, allowed, target, *, reviewer=False, approver=False, schedule=False):
         if assessment.status not in allowed:
             raise ValidationError({"status": f"Cannot transition {assessment.status} to {target}."})
+        if target == Assessment.Status.DRAFT:
+            from attempts.models import Attempt
+            if Attempt.objects.filter(assessment=assessment).exists():
+                raise ValidationError({"status": "Assessments with attempt history cannot be reopened."})
         if schedule or target in {Assessment.Status.REVIEW, Assessment.Status.APPROVED}:
             try:
                 assessment.validate_configuration(require_questions=True, require_schedule=schedule)
@@ -67,6 +72,15 @@ class AssessmentViewSet(viewsets.ModelViewSet):
             assessment.approved_by = self.request.user
             fields.append("approved_by")
         assessment.save(update_fields=fields)
+        from audit.models import AuditEvent
+        from audit.services import record_event
+        event_type = {
+            Assessment.Status.APPROVED: AuditEvent.Type.ASSESSMENT_APPROVED,
+            Assessment.Status.SCHEDULED: AuditEvent.Type.ASSESSMENT_SCHEDULED,
+        }.get(target)
+        if event_type:
+            record_event(institution=assessment.institution, actor=self.request.user, event_type=event_type,
+                         resource=assessment, metadata={"status": target})
         return Response(self.get_serializer(assessment).data)
 
     @action(detail=True, methods=["post"], url_path="submit-review")

@@ -2,12 +2,27 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from attempts.models import Answer, Attempt, AttemptQuestion, AttemptQuestionOption
+from audit.models import AuditEvent
+from audit.services import record_event
 from questions.models import Question
 from .grading import grade_for_percentage
 from .models import Result, ResultQuestion
+
+
+def _authorize_actor(actor, institution_id, roles):
+    if actor is None:
+        return
+    if actor.is_superuser or actor.institution_memberships.filter(
+        is_active=True, institution__is_active=True, role="platform_admin",
+    ).exists():
+        return
+    if not actor.institution_memberships.filter(
+        institution_id=institution_id, is_active=True, institution__is_active=True, role__in=roles,
+    ).exists():
+        raise PermissionDenied("You do not have permission to perform this result action.")
 
 
 def _question_mark(attempt, row):
@@ -56,7 +71,7 @@ def _eligible_for_immediate_publish(attempt, now):
 
 
 @transaction.atomic
-def mark_attempt(attempt_id, *, now=None):
+def mark_attempt(attempt_id, *, now=None, actor=None):
     now = now or timezone.now()
     try:
         attempt = Attempt.objects.select_for_update().select_related("assessment", "candidate", "institution").get(pk=attempt_id)
@@ -65,6 +80,7 @@ def mark_attempt(attempt_id, *, now=None):
         raise NotFound()
     if attempt.status not in (Attempt.Status.SUBMITTED, Attempt.Status.EXPIRED):
         raise ValidationError({"attempt": "Only submitted or expired attempts can be marked."})
+    _authorize_actor(actor, attempt.institution_id, {"platform_admin", "institution_admin", "examiner"})
     rows = list(AttemptQuestion.objects.filter(attempt=attempt).select_related("question").prefetch_related("question__options").order_by("order", "id"))
     total = sum((Decimal(row.marks_available or 0) for row in rows), Decimal("0.00"))
     obtained = Decimal("0.00")
@@ -92,6 +108,7 @@ def mark_attempt(attempt_id, *, now=None):
     result.percentage = percentage
     result.grade = grade_for_percentage(percentage)
     result.passed = passed
+    was_published = result.status == Result.Status.PUBLISHED
     if result.status not in (Result.Status.PUBLISHED, Result.Status.WITHHELD):
         if (attempt.assessment.result_release_mode == attempt.assessment.ResultReleaseMode.IMMEDIATE
                 and _eligible_for_immediate_publish(attempt, now)):
@@ -101,6 +118,11 @@ def mark_attempt(attempt_id, *, now=None):
             result.status = Result.Status.PROVISIONAL
             result.published_at = None
     result.save()
+    record_event(institution=result.institution, actor=actor, event_type=AuditEvent.Type.RESULT_MARKED,
+                 resource=result, metadata={"attempt_id": attempt.pk, "result_status": result.status})
+    if result.status == Result.Status.PUBLISHED and not was_published:
+        record_event(institution=result.institution, actor=actor, event_type=AuditEvent.Type.RESULT_PUBLISHED,
+                     resource=result, metadata={"release_mode": attempt.assessment.result_release_mode})
     keep_ids = []
     for row, state, value, note in marks:
         detail, _ = ResultQuestion.objects.update_or_create(
@@ -113,7 +135,7 @@ def mark_attempt(attempt_id, *, now=None):
 
 
 @transaction.atomic
-def publish_result(result_id, *, now=None):
+def publish_result(result_id, *, now=None, actor=None):
     now = now or timezone.now()
     try:
         result = Result.objects.select_for_update().select_related("assessment").get(pk=result_id)
@@ -122,6 +144,7 @@ def publish_result(result_id, *, now=None):
         raise NotFound()
     if not result.marked_at:
         raise ValidationError({"result": "The result must be marked before publication."})
+    _authorize_actor(actor, result.institution_id, {"platform_admin", "institution_admin"})
     assessment = result.assessment
     if assessment.result_visibility == assessment.ResultVisibility.HIDDEN:
         raise ValidationError({"result_visibility": "This assessment is configured to keep results hidden."})
@@ -130,16 +153,19 @@ def publish_result(result_id, *, now=None):
     result.status = Result.Status.PUBLISHED
     result.published_at = result.published_at or now
     result.save(update_fields=("status", "published_at", "updated_at"))
+    record_event(institution=result.institution, actor=actor, event_type=AuditEvent.Type.RESULT_PUBLISHED, resource=result)
     return result
 
 
 @transaction.atomic
-def withhold_result(result_id):
+def withhold_result(result_id, *, actor=None):
     try:
         result = Result.objects.select_for_update().get(pk=result_id)
     except Result.DoesNotExist:
         from rest_framework.exceptions import NotFound
         raise NotFound()
+    _authorize_actor(actor, result.institution_id, {"platform_admin", "institution_admin"})
     result.status = Result.Status.WITHHELD
     result.save(update_fields=("status", "updated_at"))
+    record_event(institution=result.institution, actor=actor, event_type=AuditEvent.Type.RESULT_WITHHELD, resource=result)
     return result

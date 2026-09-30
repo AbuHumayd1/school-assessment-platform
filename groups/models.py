@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 
 class Group(models.Model):
     institution = models.ForeignKey("institutions.Institution", on_delete=models.CASCADE, related_name="groups")
@@ -24,3 +25,17 @@ class GroupMembership(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["candidate", "group"], name="unique_candidate_group_membership")]
+
+    def clean(self):
+        errors = {}
+        if self.candidate_id and self.group_id and self.candidate.institution_id != self.group.institution_id:
+            errors["group"] = "Candidate and group must belong to the same institution."
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            errors["end_date"] = "Membership end date cannot precede its start date."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.candidate_id and self.group_id:
+            self.clean()
+        super().save(*args, **kwargs)

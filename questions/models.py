@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -118,10 +118,12 @@ class Question(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         if self.pk:
             from django.apps import apps
             AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
+            original = type(self).objects.select_for_update().filter(pk=self.pk).first()
             if AttemptQuestion.objects.filter(question_id=self.pk).exists():
                 self.full_clean()
         super().save(*args, **kwargs)
@@ -153,12 +155,25 @@ class QuestionOption(models.Model):
             if any(getattr(original, field) != getattr(self, field) for field in protected):
                 raise ValidationError({"text": "Question options cannot be changed after the question has been used in an attempt."})
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         from django.apps import apps
         AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
-        if self.question_id and AttemptQuestion.objects.filter(question_id=self.question_id).exists():
-            self.full_clean()
+        if self.question_id:
+            Question.objects.select_for_update().get(pk=self.question_id)
+            if AttemptQuestion.objects.filter(question_id=self.question_id).exists():
+                self.full_clean()
         super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        from django.apps import apps
+        AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
+        if self.question_id:
+            Question.objects.select_for_update().get(pk=self.question_id)
+        if self.question_id and AttemptQuestion.objects.filter(question_id=self.question_id).exists():
+            raise ValidationError("Question options cannot be deleted after the question is used in an attempt.")
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"Option {self.order} for question {self.question_id}"

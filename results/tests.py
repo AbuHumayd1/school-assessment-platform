@@ -255,8 +255,7 @@ class MarkingServiceTests(ResultFixtureMixin, APITestCase):
     def test_assessment_passmark_edits_do_not_change_attempt_threshold(self):
         attempt = self.make_attempt(pass_mark=Decimal("1.00"))
         self.add_question(attempt, self.mcq[0].question, self.mcq, selection=[self.mcq[0]])
-        self.assessment.pass_mark = Decimal("3.00")
-        self.assessment.save(update_fields=("pass_mark",))
+        Assessment.objects.filter(pk=self.assessment.pk).update(pass_mark=Decimal("3.00"))
         result = mark_attempt(attempt.pk)
         self.assertEqual(result.pass_mark, Decimal("1.00"))
         self.assertTrue(result.passed)

@@ -43,3 +43,12 @@ class AssessmentQuestionAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         from .tenancy import assessment_institution_ids
         return super().get_queryset(request).filter(assessment__institution_id__in=assessment_institution_ids(request.user))
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

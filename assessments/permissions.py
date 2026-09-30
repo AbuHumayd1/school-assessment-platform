@@ -24,7 +24,7 @@ class CanManageAssessment(BasePermission):
             return False
         if is_platform_admin(user):
             return True
-        return user.institution_memberships.filter(is_active=True, role__in=ASSESSMENT_WRITE_ROLES).exists()
+        return user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=ASSESSMENT_WRITE_ROLES).exists()
 
     def has_object_permission(self, request, view, obj):
         if obj.status != Assessment.Status.DRAFT:
@@ -44,7 +44,7 @@ class CanReviewAssessment(CanAccessAssessments):
             return False
         if is_platform_admin(user):
             return True
-        return user.institution_memberships.filter(is_active=True, role__in=ASSESSMENT_REVIEW_ROLES).exists()
+        return user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=ASSESSMENT_REVIEW_ROLES).exists()
 
     def has_object_permission(self, request, view, obj):
         return has_question_role(request.user, obj.institution_id, ASSESSMENT_REVIEW_ROLES)
@@ -57,7 +57,7 @@ class CanApproveAssessment(CanReviewAssessment):
             return False
         if is_platform_admin(user):
             return True
-        return user.institution_memberships.filter(is_active=True, role__in=ASSESSMENT_APPROVE_ROLES).exists()
+        return user.institution_memberships.filter(is_active=True, institution__is_active=True, role__in=ASSESSMENT_APPROVE_ROLES).exists()
 
     def has_object_permission(self, request, view, obj):
         return has_question_role(request.user, obj.institution_id, ASSESSMENT_APPROVE_ROLES)

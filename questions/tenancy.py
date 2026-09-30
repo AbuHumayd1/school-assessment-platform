@@ -9,7 +9,7 @@ APPROVE_ROLES = {"platform_admin", "institution_admin"}
 
 
 def is_platform_admin(user):
-    return user.is_superuser or user.institution_memberships.filter(is_active=True, role="platform_admin").exists()
+    return user.is_superuser or user.institution_memberships.filter(is_active=True, institution__is_active=True, role="platform_admin").exists()
 
 
 def institution_ids_for_question_bank(user):
@@ -22,9 +22,9 @@ def institution_ids_for_question_bank(user):
 
 def has_question_role(user, institution_id, roles):
     if is_platform_admin(user):
-        return True
+        return Institution.objects.filter(pk=institution_id, is_active=True).exists()
     return InstitutionMembership.objects.filter(
-        user=user, institution_id=institution_id, is_active=True, role__in=roles
+        user=user, institution_id=institution_id, is_active=True, institution__is_active=True, role__in=roles
     ).exists()
 
 
