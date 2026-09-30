@@ -1,9 +1,11 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from .models import Question, Topic
+from .import_service import import_questions_csv
 from .permissions import (
     CanAccessQuestionBank, CanApproveQuestion, CanDeleteQuestion, CanEditQuestion,
     CanManageQuestionBank, CanManageTopics, CanReviewQuestion, CanSubmitQuestion,
@@ -65,6 +67,7 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
             "request_changes": CanReviewQuestion,
             "approve": CanApproveQuestion,
             "archive": CanApproveQuestion,
+            "import_csv": CanManageQuestionBank,
         }
         permission_class = permission_by_action.get(self.action, CanAccessQuestionBank)
         return [permission_class()]
@@ -74,14 +77,64 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
             institution_id__in=institution_ids_for_question_bank(self.request.user),
             institution__is_active=True,
         ).select_related("institution", "subject", "topic", "created_by", "reviewed_by").prefetch_related("options")
-        for field in ("subject", "topic", "question_type", "difficulty", "status"):
+        for field in ("subject", "topic"):
             value = self.request.query_params.get(field)
             if value:
-                queryset = queryset.filter(**{f"{field}_id" if field in {"subject", "topic"} else field: value})
+                try:
+                    record_id = int(value)
+                    if record_id < 1:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    raise ValidationError({field: "Enter a valid identifier."})
+                queryset = queryset.filter(**{f"{field}_id": record_id})
+
+        for field, choices in (
+            ("question_type", Question.Type.values),
+            ("difficulty", Question.Difficulty.values),
+            ("status", Question.Status.values),
+        ):
+            value = self.request.query_params.get(field)
+            if value:
+                if value not in choices:
+                    return queryset.none()
+                queryset = queryset.filter(**{field: value})
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            normalized = is_active.strip().lower()
+            if normalized not in {"true", "false", "1", "0"}:
+                raise ValidationError({"is_active": "Use true or false."})
+            if normalized in {"true", "1"}:
+                queryset = queryset.exclude(status=Question.Status.ARCHIVED)
+            else:
+                queryset = queryset.filter(status=Question.Status.ARCHIVED)
+
+        search = self.request.query_params.get("search", "").strip()
+        if len(search) > 200:
+            raise ValidationError({"search": "Search text must be 200 characters or fewer."})
+        if search:
+            queryset = queryset.filter(text__icontains=search)
         return queryset
 
     def perform_create(self, serializer):
         serializer.save()
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import",
+        parser_classes=[MultiPartParser, FormParser],
+        permission_classes=[CanManageQuestionBank],
+    )
+    def import_csv(self, request, *args, **kwargs):
+        institution = self.get_write_institution()
+        result = import_questions_csv(
+            request.FILES.get("file"), institution=institution, actor=request.user,
+        )
+        return Response(
+            result,
+            status=status.HTTP_201_CREATED if not result["errors"] else status.HTTP_400_BAD_REQUEST,
+        )
 
     def _transition(self, question, allowed_from, to_status, set_reviewer=False):
         if question.status not in allowed_from:
