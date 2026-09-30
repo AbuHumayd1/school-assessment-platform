@@ -86,6 +86,14 @@ class Question(models.Model):
 
     def clean(self):
         errors = {}
+        if self.pk:
+            from django.apps import apps
+            AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
+            if AttemptQuestion.objects.filter(question_id=self.pk).exists():
+                original = type(self).objects.get(pk=self.pk)
+                protected = ("institution_id", "subject_id", "topic_id", "question_type", "text", "explanation", "difficulty", "marks", "source", "source_year", "learning_objective")
+                if any(getattr(original, field) != getattr(self, field) for field in protected):
+                    errors["text"] = "Question content cannot be edited after it has been used in an attempt."
         if self.subject_id and self.institution_id and self.subject.institution_id != self.institution_id:
             errors["subject"] = "The subject must belong to the same institution as the question."
         if self.topic_id:
@@ -110,6 +118,14 @@ class Question(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            from django.apps import apps
+            AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
+            if AttemptQuestion.objects.filter(question_id=self.pk).exists():
+                self.full_clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.subject}: {self.text[:80]}"
 
@@ -125,6 +141,24 @@ class QuestionOption(models.Model):
     class Meta:
         ordering = ("order", "id")
         constraints = [models.UniqueConstraint(fields=("question", "order"), name="unique_option_order_per_question")]
+
+    def clean(self):
+        from django.apps import apps
+        AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
+        if self.question_id and AttemptQuestion.objects.filter(question_id=self.question_id).exists():
+            if not self.pk:
+                raise ValidationError({"question": "Options cannot be added after the question has been used in an attempt."})
+            original = type(self).objects.get(pk=self.pk)
+            protected = ("question_id", "text", "is_correct", "order")
+            if any(getattr(original, field) != getattr(self, field) for field in protected):
+                raise ValidationError({"text": "Question options cannot be changed after the question has been used in an attempt."})
+
+    def save(self, *args, **kwargs):
+        from django.apps import apps
+        AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
+        if self.question_id and AttemptQuestion.objects.filter(question_id=self.question_id).exists():
+            self.full_clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Option {self.order} for question {self.question_id}"

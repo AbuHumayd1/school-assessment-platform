@@ -1,0 +1,232 @@
+from decimal import Decimal
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
+from django.db import models
+from django.db.models import Sum
+from django.utils import timezone
+
+
+class Assessment(models.Model):
+    class Type(models.TextChoices):
+        QUIZ = "quiz", "Quiz"
+        ASSIGNMENT = "assignment", "Assignment"
+        CLASS_TEST = "class_test", "Class test"
+        CONTINUOUS_ASSESSMENT = "continuous_assessment", "Continuous assessment"
+        TEST = "test", "Test"
+        MOCK_EXAM = "mock_exam", "Mock exam"
+        TERM_EXAM = "term_exam", "Term exam"
+        ENTRANCE_EXAM = "entrance_exam", "Entrance exam"
+        PLACEMENT_TEST = "placement_test", "Placement test"
+        COMPETITION = "competition", "Competition"
+        CERTIFICATION_EXAM = "certification_exam", "Certification exam"
+        TRAINING_ASSESSMENT = "training_assessment", "Training assessment"
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        REVIEW = "review", "In review"
+        APPROVED = "approved", "Approved"
+        SCHEDULED = "scheduled", "Scheduled"
+        ARCHIVED = "archived", "Archived"
+
+    class SecurityLevel(models.TextChoices):
+        STANDARD = "standard", "Standard"
+        ENHANCED = "enhanced", "Enhanced"
+
+    class ResultVisibility(models.TextChoices):
+        HIDDEN = "hidden", "Hidden"
+        AFTER_SUBMISSION = "after_submission", "After submission"
+        SCHEDULED_RELEASE = "scheduled_release", "Scheduled release"
+
+    class CandidateAccess(models.TextChoices):
+        ASSIGNED_GROUP = "assigned_group", "Assigned group"
+        SPECIFIC_CANDIDATES = "specific_candidates", "Specific candidates"
+        ACCESS_CODE = "access_code", "Access code"
+
+    class ResultReleaseMode(models.TextChoices):
+        IMMEDIATE = "immediate", "Immediate"
+        APPROVAL_REQUIRED = "approval_required", "Approval required"
+        MANUAL_RELEASE = "manual_release", "Manual release"
+
+    institution = models.ForeignKey("institutions.Institution", on_delete=models.CASCADE, related_name="assessments")
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    assessment_type = models.CharField(max_length=32, choices=Type.choices)
+    subject = models.ForeignKey("subjects.Subject", on_delete=models.PROTECT, related_name="assessments")
+    group = models.ForeignKey("groups.Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="assessments")
+    duration_minutes = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    pass_mark = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("0.00"), validators=[MinValueValidator(Decimal("0.00"))])
+    start_at = models.DateTimeField(null=True, blank=True)
+    end_at = models.DateTimeField(null=True, blank=True)
+    attempt_limit = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
+    resume_allowed = models.BooleanField(default=True)
+    randomize_questions = models.BooleanField(default=False)
+    randomize_options = models.BooleanField(default=False)
+    security_level = models.CharField(max_length=16, choices=SecurityLevel.choices, default=SecurityLevel.STANDARD)
+    result_visibility = models.CharField(max_length=24, choices=ResultVisibility.choices, default=ResultVisibility.HIDDEN)
+    candidate_access = models.CharField(max_length=24, choices=CandidateAccess.choices, default=CandidateAccess.ASSIGNED_GROUP)
+    review_allowed = models.BooleanField(default=False)
+    result_release_mode = models.CharField(max_length=24, choices=ResultReleaseMode.choices, default=ResultReleaseMode.APPROVAL_REQUIRED)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_assessments")
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="reviewed_assessments")
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="approved_assessments")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "id")
+        indexes = [
+            models.Index(fields=("institution", "status"), name="assessment_tenant_status_idx"),
+            models.Index(fields=("institution", "subject"), name="assessment_tenant_subject_idx"),
+            models.Index(fields=("institution", "group"), name="assessment_tenant_group_idx"),
+        ]
+
+    @property
+    def total_marks(self):
+        if not self.pk:
+            return Decimal("0.00")
+        return self.assessment_questions.aggregate(total=Sum("marks"))["total"] or Decimal("0.00")
+
+    def clean(self):
+        errors = {}
+        if self.subject_id and self.institution_id and self.subject.institution_id != self.institution_id:
+            errors["subject"] = "The subject must belong to the assessment institution."
+        if self.group_id:
+            if self.group.institution_id != self.institution_id:
+                errors["group"] = "The group must belong to the assessment institution."
+            elif not self.group.is_active:
+                errors["group"] = "The selected group must be active."
+        if self.duration_minutes is not None and self.duration_minutes < 1:
+            errors["duration_minutes"] = "Duration must be a positive number of minutes."
+        if self.attempt_limit is not None and self.attempt_limit < 1:
+            errors["attempt_limit"] = "Attempt limit must be positive."
+        if self.start_at and self.end_at:
+            if timezone.is_naive(self.start_at) or timezone.is_naive(self.end_at):
+                errors["start_at"] = "Availability dates must be timezone-aware."
+            elif self.end_at <= self.start_at:
+                errors["end_at"] = "End time must be after start time."
+        if self.institution_id and self.created_by_id:
+            from questions.tenancy import has_question_role, is_platform_admin
+            if not has_question_role(self.created_by, self.institution_id, {"institution_admin", "teacher", "examiner"}) and not is_platform_admin(self.created_by):
+                errors["created_by"] = "The creator must have an active assessment-management role in this institution."
+        for field in ("reviewed_by", "approved_by"):
+            actor_id = getattr(self, f"{field}_id")
+            actor = getattr(self, field, None)
+            if self.institution_id and actor_id and actor:
+                from questions.tenancy import has_question_role, is_platform_admin
+                if not has_question_role(actor, self.institution_id, {"institution_admin", "examiner"}) and not is_platform_admin(actor):
+                    errors[field] = "The workflow actor must belong to the assessment institution."
+        if errors:
+            raise ValidationError(errors)
+
+    def validate_configuration(self, question_specs=None, *, require_questions=False, require_schedule=False):
+        """Validate persisted or prospective question rows before review and scheduling."""
+        errors = {}
+        if not self.title.strip():
+            errors["title"] = "Title is required."
+        if not self.institution_id:
+            errors["institution"] = "An institution is required."
+        if not self.subject_id:
+            errors["subject"] = "A subject is required."
+        elif self.institution_id and self.subject.institution_id != self.institution_id:
+            errors["subject"] = "The subject must belong to the assessment institution."
+        if self.duration_minutes is None or self.duration_minutes < 1:
+            errors["duration_minutes"] = "Duration must be a positive number of minutes."
+        if self.attempt_limit is None or self.attempt_limit < 1:
+            errors["attempt_limit"] = "Attempt limit must be positive."
+        if self.group_id:
+            if self.group.institution_id != self.institution_id:
+                errors["group"] = "The group must belong to the assessment institution."
+            elif not self.group.is_active:
+                errors["group"] = "The selected group must be active."
+        if self.start_at and self.end_at and self.end_at <= self.start_at:
+            errors["end_at"] = "End time must be after start time."
+        if require_schedule:
+            if not self.start_at or not self.end_at:
+                errors["start_at"] = "Both start_at and end_at are required before scheduling."
+            if self.candidate_access == self.CandidateAccess.ASSIGNED_GROUP and not self.group_id:
+                errors["group"] = "An active target group is required for assigned-group access."
+
+        if question_specs is None:
+            specs = list(self.assessment_questions.select_related("question").all()) if self.pk else []
+            specs = [{"question": row.question, "order": row.order, "marks": row.marks} for row in specs]
+        else:
+            specs = list(question_specs)
+
+        if require_questions and not specs:
+            errors["questions"] = "At least one approved question is required."
+        seen_questions = set()
+        seen_orders = set()
+        total = Decimal("0.00")
+        for index, spec in enumerate(specs):
+            question = spec["question"]
+            order = spec["order"]
+            marks = spec["marks"]
+            if question.pk in seen_questions:
+                errors["questions"] = f"Question {question.pk} is selected more than once."
+            if order in seen_orders:
+                errors["questions"] = f"Question order {order} is duplicated."
+            seen_questions.add(question.pk)
+            seen_orders.add(order)
+            if question.institution_id != self.institution_id:
+                errors["questions"] = f"Question {question.pk} belongs to another institution."
+            if self.subject_id and question.subject_id != self.subject_id:
+                errors["questions"] = f"Question {question.pk} belongs to another subject."
+            if question.status != question.Status.APPROVED:
+                errors["questions"] = f"Question {question.pk} is not approved."
+            if order < 1:
+                errors["questions"] = f"Question order at position {index + 1} must be positive."
+            if marks <= 0:
+                errors["questions"] = f"Marks for question {question.pk} must be positive."
+            total += marks
+        if total <= 0 and require_questions:
+            errors["total_marks"] = "The assessment must have total marks greater than zero."
+        if self.pass_mark < 0:
+            errors["pass_mark"] = "Pass mark cannot be negative."
+        elif specs and self.pass_mark > total:
+            errors["pass_mark"] = "Pass mark cannot exceed total marks."
+        if errors:
+            raise ValidationError(errors)
+        return total
+
+    def __str__(self):
+        return self.title
+
+
+class AssessmentQuestion(models.Model):
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="assessment_questions")
+    question = models.ForeignKey("questions.Question", on_delete=models.PROTECT, related_name="assessment_links")
+    order = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    marks = models.DecimalField(max_digits=7, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("order", "id")
+        constraints = [
+            models.UniqueConstraint(fields=("assessment", "question"), name="unique_question_per_assessment"),
+            models.UniqueConstraint(fields=("assessment", "order"), name="unique_assessment_question_order"),
+        ]
+
+    def clean(self):
+        errors = {}
+        if self.assessment_id and self.question_id:
+            assessment = self.assessment
+            question = self.question
+            if assessment.institution_id != question.institution_id:
+                errors["question"] = "The question must belong to the assessment institution."
+            elif assessment.subject_id != question.subject_id:
+                errors["question"] = "The question must belong to the assessment subject."
+            elif question.status != question.Status.APPROVED:
+                errors["question"] = "Only approved questions may be selected."
+        if self.order is not None and self.order < 1:
+            errors["order"] = "Order must be positive."
+        if self.marks is not None and self.marks <= 0:
+            errors["marks"] = "Marks must be positive."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"{self.assessment}: question {self.question_id}"
