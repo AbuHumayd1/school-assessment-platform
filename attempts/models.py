@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from decimal import Decimal
 
 
 class Attempt(models.Model):
@@ -20,6 +21,7 @@ class Attempt(models.Model):
     expires_at = models.DateTimeField()
     submitted_at = models.DateTimeField(null=True, blank=True)
     last_activity_at = models.DateTimeField()
+    pass_mark_snapshot = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("0.00"))
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -56,6 +58,7 @@ class AttemptQuestion(models.Model):
     question = models.ForeignKey("questions.Question", on_delete=models.PROTECT, related_name="attempt_links")
     order = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     marked_for_review = models.BooleanField(default=False)
+    marks_available = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal("0.00"), validators=[MinValueValidator(Decimal("0.00"))])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

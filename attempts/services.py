@@ -112,6 +112,7 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
                 institution=assessment.institution, assessment=assessment, candidate=candidate,
                 attempt_number=previous + 1, status=Attempt.Status.IN_PROGRESS,
                 started_at=now, expires_at=now + timedelta(minutes=assessment.duration_minutes), last_activity_at=now,
+                pass_mark_snapshot=assessment.pass_mark,
             )
             order_rows = list(rows)
             if assessment.randomize_questions:
@@ -119,6 +120,7 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
             for position, assessment_question in enumerate(order_rows, start=1):
                 attempt_question = AttemptQuestion.objects.create(
                     attempt=attempt, question=assessment_question.question, order=position,
+                    marks_available=assessment_question.marks,
                 )
                 options = list(assessment_question.question.options.all().order_by("order", "id"))
                 if assessment.randomize_options:

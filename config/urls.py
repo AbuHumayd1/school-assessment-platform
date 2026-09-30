@@ -20,3 +20,4 @@ urlpatterns = [path("admin/", admin.site.urls), path("api/v1/", include(router.u
                path("api/v1/users/", include("accounts.urls")),
                path("api/v1/assessments/", include("assessments.urls")),
                path("api/v1/attempts/", include("attempts.urls"))]
+urlpatterns += [path("api/v1/results/", include("results.urls"))]

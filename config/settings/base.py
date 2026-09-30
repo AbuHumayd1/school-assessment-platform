@@ -10,7 +10,7 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
-    "rest_framework", "accounts", "tenants", "institutions", "candidates", "groups", "subjects", "questions", "assessments", "attempts",
+    "rest_framework", "accounts", "tenants", "institutions", "candidates", "groups", "subjects", "questions", "assessments", "attempts", "results",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware", "django.contrib.sessions.middleware.SessionMiddleware",
