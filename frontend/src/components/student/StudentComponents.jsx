@@ -27,16 +27,18 @@ export function StudentEmptyState({ title, description }) {
 }
 
 export function ExamCard({ exam, action, actionLabel, onAction, children, className = '' }) {
-  return <Card as="article" className={`student-exam-card student-exam-card--${exam.state} ${className}`}>
-    <div className="student-exam-card__top"><ExamStatusBadge state={exam.state} /><span>{exam.subject}</span><span>{exam.cohort}</span></div>
+  const state = exam.status || exam.state
+  const subject = exam.subject?.name || exam.subject
+  const group = exam.group?.name || exam.cohort
+  return <Card as="article" className={`student-exam-card student-exam-card--${state} ${className}`}>
+    <div className="student-exam-card__top"><ExamStatusBadge state={state} /><span>{subject}</span><span>{group}</span></div>
     <h2>{exam.title}</h2>
-    {exam.summary && <p className="student-exam-card__summary">{exam.summary}</p>}
     <div className="student-exam-card__facts">
-      <span><small>Duration</small><strong>{exam.durationMinutes} min</strong></span>
-      <span><small>Questions</small><strong>{exam.questionCount}</strong></span>
-      <span><small>Total marks</small><strong>{exam.totalMarks}</strong></span>
+      <span><small>Duration</small><strong>{exam.duration_minutes} min</strong></span>
+      <span><small>Assessment</small><strong>{exam.assessment_type_label || exam.assessment_type}</strong></span>
+      <span><small>Total marks</small><strong>{exam.total_marks}</strong></span>
     </div>
-    <div className="student-exam-card__bottom"><span className="student-exam-card__availability"><Icon name="bell" size={16} />{exam.state === 'upcoming' ? exam.startsAt : exam.state === 'completed' ? exam.endsAt : `${exam.attemptsRemaining} attempt${exam.attemptsRemaining === 1 ? '' : 's'} remaining`}</span>{onAction && <Button onClick={onAction}>{actionLabel}<Icon name="arrow" size={17} /></Button>}{action}</div>
+    <div className="student-exam-card__bottom"><span className="student-exam-card__availability"><Icon name="bell" size={16} />{state === 'upcoming' ? exam.start_at : state === 'completed' ? 'Attempt limit reached or assessment ended' : `${exam.attempts_remaining} attempt${exam.attempts_remaining === 1 ? '' : 's'} remaining`}</span>{onAction && <Button onClick={onAction}>{actionLabel}<Icon name="arrow" size={17} /></Button>}{action}</div>
     {children}
   </Card>
 }

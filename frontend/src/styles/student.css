@@ -1,5 +1,7 @@
 .student-content { width: min(100%, 100rem); }
 .student-page { display: grid; gap: clamp(1.5rem, 3vw, 2.5rem); min-width: 0; }
+.portal-load-error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-medium); background: var(--color-white); color: var(--color-muted); }
+.portal-load-error p { margin: 0; }
 .student-eyebrow { margin: 0 0 .45rem; color: var(--color-primary); font-size: .72rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .student-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; }
 .student-page-header h1,.student-welcome h1 { margin: 0; color: var(--color-brand-dark); font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.05em; line-height: 1.08; }

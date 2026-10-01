@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Max, Q
+from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
@@ -11,10 +11,11 @@ from assessments.models import Assessment, AssessmentQuestion
 from audit.models import AuditEvent
 from audit.services import record_event
 from candidates.models import Candidate
-from groups.models import GroupMembership
 from questions.models import Question
 from .models import Attempt, AttemptQuestion, AttemptQuestionOption
-from .tenancy import active_local_date, candidates_for_user
+from .tenancy import (
+    active_group_ids_for_candidate, assessment_window_state, candidates_for_user,
+)
 
 
 class AttemptConflict(APIException):
@@ -35,34 +36,41 @@ def resolve_candidate(user, institution_id=None):
     return candidates[0]
 
 
-def _validate_assessment_for_candidate(assessment, candidate, now):
+def _validate_assessment_for_candidate(
+    assessment, candidate, now, *, check_window=True, question_rows=None,
+    eligible_group_ids=None,
+):
     if assessment.institution_id != candidate.institution_id or not assessment.institution.is_active:
         raise NotFound()
     if candidate.status != Candidate.Status.ACTIVE:
         raise PermissionDenied("This candidate profile is not active.")
     if assessment.status not in {Assessment.Status.APPROVED, Assessment.Status.SCHEDULED}:
         raise PermissionDenied("Only approved or scheduled assessments are available to candidates.")
-    if assessment.start_at and now < assessment.start_at:
-        raise PermissionDenied("This assessment is not available yet.")
-    if assessment.end_at and now > assessment.end_at:
-        raise PermissionDenied("The assessment availability window has ended.")
+    if check_window:
+        window = assessment_window_state(assessment, now)
+        if window == "upcoming":
+            raise PermissionDenied("This assessment is not available yet.")
+        if window == "ended":
+            raise PermissionDenied("The assessment availability window has ended.")
     if assessment.candidate_access != Assessment.CandidateAccess.ASSIGNED_GROUP:
         raise PermissionDenied("This assessment access mode is not configured for candidate delivery.")
     if not assessment.group_id or not assessment.group.is_active:
         raise ValidationError({"group": "An active assigned group is required for candidate access."})
-    today = active_local_date(assessment.institution)
-    eligible = GroupMembership.objects.filter(candidate=candidate, group_id=assessment.group_id, is_active=True).filter(
-        Q(start_date__isnull=True) | Q(start_date__lte=today),
-    ).filter(
-        Q(end_date__isnull=True) | Q(end_date__gte=today),
-    ).exists()
-    if not eligible:
+    if eligible_group_ids is None:
+        eligible_group_ids = active_group_ids_for_candidate(candidate)
+    if assessment.group_id not in eligible_group_ids:
         raise PermissionDenied("The candidate is not an active member of the assigned group.")
+
+    rows = question_rows
+    if rows is None:
+        rows = list(assessment.assessment_questions.select_related("question").prefetch_related(
+            "question__options",
+        ).order_by("order", "id"))
+    specs = [{"question": row.question, "order": row.order, "marks": row.marks} for row in rows]
     try:
-        assessment.validate_configuration(require_questions=True)
+        assessment.validate_configuration(question_specs=specs, require_questions=True)
     except DjangoValidationError as exc:
         raise ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
-    rows = list(assessment.assessment_questions.select_related("question").prefetch_related("question__options").order_by("order", "id"))
     if not rows:
         raise ValidationError({"questions": "The assessment has no configured questions."})
     for row in rows:

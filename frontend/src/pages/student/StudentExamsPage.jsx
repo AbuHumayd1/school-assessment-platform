@@ -1,72 +1,85 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import Badge from '../../components/common/Badge.jsx'
 import Button from '../../components/common/Button.jsx'
 import Card from '../../components/common/Card.jsx'
 import Icon from '../../components/common/Icon.jsx'
+import LoadingState from '../../components/common/LoadingState.jsx'
 import SearchField from '../../components/common/SearchField.jsx'
-import { ExamCard, StudentEmptyState, StudentPageHeader } from '../../components/student/StudentComponents.jsx'
-import { previewExams } from '../../data/studentPreviewData.js'
+import { ExamCard, ExamStatusBadge, StudentEmptyState, StudentPageHeader } from '../../components/student/StudentComponents.jsx'
+import useCandidatePortalData from '../../hooks/useCandidatePortalData.js'
+import { formatCandidateDate } from '../../utils/candidatePortal.js'
 
 const tabs = [['available', 'Available'], ['upcoming', 'Upcoming'], ['completed', 'Completed']]
-const belongsToTab = (exam, tab) => tab === 'available' ? ['available', 'in_progress'].includes(exam.state) : exam.state === tab
+const belongsToTab = (exam, tab) => tab === 'available' ? ['available', 'in_progress'].includes(exam.status) : exam.status === tab
+
+function PortalState({ portal }) {
+  if (portal.loading) return <LoadingState label="Loading your examinations…" />
+  if (portal.accessState === 'unlinked') return <StudentEmptyState title="Candidate profile not linked" description="Your account is not linked to a candidate profile. Contact your institution for help." />
+  if (portal.accessState === 'restricted') return <StudentEmptyState title="Candidate access unavailable" description="Your candidate profile needs attention. Contact your institution for assistance." />
+  if (portal.error) return <section className="portal-load-error" role="alert"><p>{portal.error}</p><Button variant="outline" onClick={portal.retry}>Try again</Button></section>
+  return null
+}
 
 export default function StudentExamsPage() {
+  const portal = useCandidatePortalData()
   const [searchParams, setSearchParams] = useSearchParams()
-  const navigate = useNavigate()
   const requestedTab = tabs.some(([key]) => key === searchParams.get('tab')) ? searchParams.get('tab') : 'available'
   const [activeTab, setActiveTab] = useState(requestedTab)
-  const [selectedId, setSelectedId] = useState(() => searchParams.get('exam') || previewExams.find(exam => belongsToTab(exam, requestedTab))?.id || null)
+  const [selectedId, setSelectedId] = useState(searchParams.get('exam') || null)
   const [search, setSearch] = useState('')
   const [subject, setSubject] = useState('all')
-  const subjects = [...new Set(previewExams.map(exam => exam.subject))]
-  const filtered = useMemo(() => previewExams.filter(exam => {
-    const matchesSearch = `${exam.title} ${exam.subject} ${exam.cohort}`.toLowerCase().includes(search.trim().toLowerCase())
-    return belongsToTab(exam, activeTab) && matchesSearch && (subject === 'all' || exam.subject === subject)
-  }), [activeTab, search, subject])
+  const [launchNotice, setLaunchNotice] = useState('')
+  const exams = portal.exams || []
+  const subjects = [...new Set(exams.map(exam => exam.subject.name))]
 
   useEffect(() => {
     setActiveTab(requestedTab)
-    setSelectedId(searchParams.get('exam') || previewExams.find(exam => belongsToTab(exam, requestedTab))?.id || null)
+    setSelectedId(searchParams.get('exam') || null)
   }, [requestedTab, searchParams])
 
-  const selectedExam = filtered.find(exam => exam.id === selectedId) || filtered[0]
+  const filtered = useMemo(() => exams.filter(exam => {
+    const matchesSearch = `${exam.title} ${exam.subject.name} ${exam.group.name}`.toLowerCase().includes(search.trim().toLowerCase())
+    return belongsToTab(exam, activeTab) && matchesSearch && (subject === 'all' || exam.subject.name === subject)
+  }), [exams, activeTab, search, subject])
+
+  const selectedExam = filtered.find(exam => String(exam.id) === String(selectedId)) || filtered[0]
   const otherExams = filtered.filter(exam => exam.id !== selectedExam?.id)
 
   function chooseTab(tab) {
     setActiveTab(tab)
-    setSelectedId(previewExams.find(exam => belongsToTab(exam, tab))?.id || null)
+    setSelectedId(null)
+    setLaunchNotice('')
     setSearchParams(tab === 'available' ? {} : { tab })
   }
 
   function selectExam(exam) {
-    if (exam.state === 'in_progress') {
-      navigate('/student/exam', { state: { examId: exam.id } })
-      return
-    }
     setSelectedId(exam.id)
-    setSearchParams({ ...(activeTab === 'available' ? {} : { tab: activeTab }), exam: exam.id })
+    setLaunchNotice('')
+    setSearchParams({ ...(activeTab === 'available' ? {} : { tab: activeTab }), exam: String(exam.id) })
   }
 
-  function startExam(exam) { navigate('/student/exam', { state: { examId: exam.id } }) }
-
   function renderExamDetails(exam) {
+    const state = exam.status
+    const startable = exam.can_start || exam.can_resume
     return <Card as="article" className="exam-before-start exam-before-start--featured" aria-labelledby="before-start-title">
-      <div className="exam-featured-meta"><div><Badge variant={exam.state === 'available' ? 'success' : exam.state === 'in_progress' ? 'primary' : 'neutral'}>{exam.state === 'available' ? 'Available now' : exam.state === 'in_progress' ? 'In progress' : exam.state}</Badge><Badge>{exam.subject}</Badge><Badge>{exam.cohort}</Badge></div><span><Icon name="clock" size={16} />{exam.state === 'available' ? 'Available now' : exam.startsAt}</span></div>
-      <div className="exam-before-start__heading"><div><h2 id="before-start-title">{exam.title}</h2><p>{exam.summary}</p></div></div>
-      <div className="exam-detail-facts exam-detail-facts--wide"><span><small>Duration</small><strong>{exam.durationMinutes} minutes</strong></span><span><small>Questions</small><strong>{exam.questionCount}</strong></span><span><small>Total marks</small><strong>{exam.totalMarks}</strong></span><span><small>Attempts</small><strong>{exam.attemptsAllowed} allowed · {exam.attemptsRemaining} remaining</strong></span><span><small>Start time</small><strong>{exam.startsAt}</strong></span><span><small>End time</small><strong>{exam.endsAt}</strong></span></div>
-      <div className="exam-instructions"><h3>Before you start</h3><ul>{(exam.instructions.length ? exam.instructions : ['Review the examination schedule before opening this assessment.']).slice(0, 4).map(item => <li key={item}><Icon name="check" size={17} />{item}</li>)}</ul></div>
-      <div className="exam-before-start__footer"><p><Icon name="file" size={16} />This is a local interface preview. No attempt is created or saved.</p>{exam.state === 'available' ? <Button onClick={() => startExam(exam)}>Start Exam<Icon name="arrow" size={17} /></Button> : exam.state === 'in_progress' ? <Button onClick={() => startExam(exam)}>Continue Exam<Icon name="arrow" size={17} /></Button> : exam.state === 'completed' && exam.resultStatus === 'released' ? <Button as={Link} to={`/student/results?result=${exam.resultId}`}>View Result<Icon name="arrow" size={17} /></Button> : null}</div>
+      <div className="exam-featured-meta"><div><ExamStatusBadge state={state} /><Badge>{exam.subject.name}</Badge><Badge>{exam.group.name}</Badge></div><span><Icon name="clock" size={16} />{state === 'upcoming' ? `Starts ${formatCandidateDate(exam.start_at, portal.institution?.timezone)}` : state === 'completed' ? 'Assessment window ended or attempts used' : 'Available now'}</span></div>
+      <div className="exam-before-start__heading"><div><h2 id="before-start-title">{exam.title}</h2><p>{exam.assessment_type_label}</p></div></div>
+      <div className="exam-detail-facts exam-detail-facts--wide"><span><small>Duration</small><strong>{exam.duration_minutes} minutes</strong></span><span><small>Assessment type</small><strong>{exam.assessment_type_label}</strong></span><span><small>Total marks</small><strong>{exam.total_marks}</strong></span><span><small>Attempts</small><strong>{exam.attempts_used} used · {exam.attempts_remaining} remaining of {exam.attempt_limit}</strong></span><span><small>Start time</small><strong>{formatCandidateDate(exam.start_at, portal.institution?.timezone)}</strong></span><span><small>End time</small><strong>{formatCandidateDate(exam.end_at, portal.institution?.timezone)}</strong></span></div>
+      {launchNotice && <p className="form-hint" role="status">{launchNotice}</p>}
+      <div className="exam-before-start__footer"><p><Icon name="file" size={16} />Starting an exam will be connected in the next integration step.</p>{startable && <Button onClick={() => setLaunchNotice('Exam launch will be connected in the next integration step. No attempt was started.')}>{exam.can_resume ? 'Resume Exam' : 'Start Exam'}<Icon name="arrow" size={17} /></Button>}</div>
     </Card>
   }
 
+  const blocked = portal.loading || portal.error || portal.accessState !== 'ready'
+  if (blocked) return <div className="student-page student-exams-page"><PortalState portal={portal} /></div>
+
   return <div className="student-page student-exams-page">
-    <StudentPageHeader eyebrow="Academic portal · Assessment schedule" title="My Exams">View your examinations and start an exam when you&apos;re ready.</StudentPageHeader>
-    <div className="student-exam-tabs" role="tablist" aria-label="Examination status">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={activeTab === key} aria-controls="student-exam-panel" className={activeTab === key ? 'is-active' : ''} onClick={() => chooseTab(key)}>{label}<span>{previewExams.filter(exam => belongsToTab(exam, key)).length}</span></button>)}</div>
+    <StudentPageHeader eyebrow="Academic portal · Assessment schedule" title="My Exams">View examinations assigned to your active class or cohort.</StudentPageHeader>
+    <div className="student-exam-tabs" role="tablist" aria-label="Examination status">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={activeTab === key} aria-controls="student-exam-panel" className={activeTab === key ? 'is-active' : ''} onClick={() => chooseTab(key)}>{label}<span>{exams.filter(exam => belongsToTab(exam, key)).length}</span></button>)}</div>
     <Card className="student-exam-filters"><SearchField id="student-exam-search" label="Search examinations" placeholder="Search exams..." value={search} onChange={event => setSearch(event.target.value)} /><label className="form-field student-exam-subject-filter"><span>Filter subject</span><select className="form-control form-select" value={subject} onChange={event => setSubject(event.target.value)}><option value="all">All subjects</option>{subjects.map(value => <option key={value}>{value}</option>)}</select></label></Card>
     <section id="student-exam-panel" role="tabpanel" aria-label={`${tabs.find(([key]) => key === activeTab)?.[1]} examinations`} className="student-exam-panel">
-      {selectedExam ? <>{renderExamDetails(selectedExam)}{otherExams.length > 0 && <div className="student-card-list">{otherExams.map(exam => <ExamCard key={exam.id} exam={exam} onAction={exam.state === 'completed' ? undefined : () => selectExam(exam)} actionLabel={exam.state === 'in_progress' ? 'Continue Exam' : 'View Exam'} action={exam.state === 'completed' ? (exam.resultStatus === 'released' ? <Button as={Link} to={`/student/results?result=${exam.resultId}`} variant="outline">View Result<Icon name="arrow" size={16} /></Button> : <span className="student-pending-label">Not yet released</span>) : undefined} />)}</div>}</> : <StudentEmptyState title={`No ${activeTab} exams`} description={activeTab === 'completed' ? 'Completed examinations will appear here.' : activeTab === 'upcoming' ? 'You have no scheduled examinations at the moment.' : 'There are no examinations available to start right now.'} />}
+      {selectedExam ? <>{renderExamDetails(selectedExam)}{otherExams.length > 0 && <div className="student-card-list">{otherExams.map(exam => <ExamCard key={exam.id} exam={exam} onAction={() => selectExam(exam)} actionLabel="View details" />)}</div>}</> : <StudentEmptyState title={exams.length ? `No ${activeTab} exams match these filters` : 'No examinations are available yet'} description={exams.length ? 'Try a different search or subject.' : 'Assigned examinations will appear here when they are available to you.'} />}
     </section>
-    <p className="student-preview-note"><Icon name="file" size={15} />Sample examination content for interface preview.</p>
   </div>
 }

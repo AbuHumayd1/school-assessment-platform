@@ -20,6 +20,7 @@ router.register("questions", QuestionViewSet, basename="question")
 urlpatterns = [path("admin/", admin.site.urls), path("api/v1/", include(router.urls)),
                path("api/v1/institution/dashboard/", InstitutionDashboardView.as_view(), name="institution-dashboard"),
                path("api/v1/auth/", include("accounts.auth_urls")),
+               path("api/v1/candidate/", include("candidates.candidate_urls")),
                path("api/v1/users/", include("accounts.urls")),
                path("api/v1/assessments/", include("assessments.urls")),
                path("api/v1/attempts/", include("attempts.urls"))]

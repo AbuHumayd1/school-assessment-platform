@@ -1,6 +1,8 @@
 from django.utils import timezone
+from django.db.models import Q
 
 from candidates.models import Candidate
+from groups.models import GroupMembership
 from tenants.models import InstitutionMembership
 
 
@@ -9,6 +11,29 @@ STAFF_ATTEMPT_ROLES = {"platform_admin", "institution_admin", "examiner"}
 
 def candidates_for_user(user):
     return Candidate.objects.filter(user=user, institution__is_active=True)
+
+
+def active_group_ids_for_candidate(candidate, local_date=None):
+    local_date = local_date or active_local_date(candidate.institution)
+    return set(
+        GroupMembership.objects.filter(
+            candidate=candidate,
+            is_active=True,
+            group__is_active=True,
+            group__institution_id=candidate.institution_id,
+        )
+        .filter(Q(start_date__isnull=True) | Q(start_date__lte=local_date))
+        .filter(Q(end_date__isnull=True) | Q(end_date__gte=local_date))
+        .values_list("group_id", flat=True)
+    )
+
+
+def assessment_window_state(assessment, now):
+    if assessment.start_at and now < assessment.start_at:
+        return "upcoming"
+    if assessment.end_at and now > assessment.end_at:
+        return "ended"
+    return "open"
 
 
 def is_attempt_staff(user, institution_id):
