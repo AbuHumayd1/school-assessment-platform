@@ -10,6 +10,7 @@ const paths = {
   chart: <><path d="M4 20V10m5 10V4m5 16v-7m5 7V7" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.7 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.7-1l-1.7.7-1.4-2.4L8.3 15a8 8 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.7-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.7 1l1.7-.7 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 2Z" /></>,
   bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Zm-8 12h4" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
   menu: <><path d="M4 6h16M4 12h16M4 18h16" /></>,
   close: <><path d="m6 6 12 12M18 6 6 18" /></>,
@@ -17,6 +18,8 @@ const paths = {
   chevron: <path d="m7 10 5 5 5-5" />,
   cap: <><path d="m2 9 10-5 10 5-10 5L2 9Z" /><path d="M6 11v5c3.5 3 8.5 3 12 0v-5m4-2v6" /></>,
   arrow: <><path d="M5 12h14m-6-6 6 6-6 6" /></>,
+  eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
+  check: <path d="m5 12 4 4L19 6" />,
 }
 
 export default function Icon({ name, size = 20, className = '' }) {

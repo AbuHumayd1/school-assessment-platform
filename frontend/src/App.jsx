@@ -14,6 +14,10 @@ import {
   SignInPage,
 } from './pages/public/PublicPages.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
+import StudentDashboardPage from './pages/student/StudentDashboardPage.jsx'
+import StudentExamsPage from './pages/student/StudentExamsPage.jsx'
+import StudentExamPage from './pages/student/StudentExamPage.jsx'
+import StudentResultsPage from './pages/student/StudentResultsPage.jsx'
 
 const staffPages = [
   ['students', 'Students'],
@@ -26,12 +30,6 @@ const staffPages = [
   ['results', 'Results'],
   ['reports', 'Reports'],
   ['settings', 'Settings'],
-]
-
-const studentPages = [
-  ['exams', 'My Exams'],
-  ['exam', 'Exam'],
-  ['results', 'My Results'],
 ]
 
 export default function App() {
@@ -58,10 +56,10 @@ export default function App() {
         </Route>
 
         <Route path="student" element={<StudentLayout />}>
-          <Route index element={<PlaceholderPage title="Dashboard" />} />
-          {studentPages.map(([path, title]) => (
-            <Route key={path} path={path} element={<PlaceholderPage title={title} />} />
-          ))}
+          <Route index element={<StudentDashboardPage />} />
+          <Route path="exams" element={<StudentExamsPage />} />
+          <Route path="exam" element={<StudentExamPage />} />
+          <Route path="results" element={<StudentResultsPage />} />
           <Route path="*" element={<PlaceholderPage title="Page" />} />
         </Route>
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
 import LogoWordmark from '../components/common/LogoWordmark.jsx'
@@ -24,32 +24,27 @@ function StudentAccount() {
 
 export default function StudentLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const { pathname } = useLocation()
+  const examMode = pathname === '/student/exam'
   const closeMenu = () => setMenuOpen(false)
 
   return (
-    <div className="student-layout">
-      <aside className="student-sidebar">
-        <LogoWordmark light to="/student" />
-        <StudentNavigation />
-        <div className="student-sidebar__footer"><Icon name="cap" size={18} /><span>Student space</span></div>
-      </aside>
-
-      <Drawer open={menuOpen} onClose={closeMenu} title="Student menu" className="student-mobile-drawer">
+    <div className={`student-layout${examMode ? ' student-layout--exam' : ''}`}>
+      {!examMode && <Drawer open={menuOpen} onClose={closeMenu} title="Student menu" className="student-mobile-drawer">
         <StudentNavigation mobile onNavigate={closeMenu} />
         <div className="student-drawer-account"><StudentAccount /></div>
-      </Drawer>
+      </Drawer>}
 
       <div className="student-workspace">
-        <header className="student-mobile-header">
-          <button className="icon-button mobile-menu-button" type="button" aria-label="Open student menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
-          <LogoWordmark light compact to="/student" />
-          <StudentAccount />
-        </header>
-        <header className="student-topbar">
-          <div className="student-topbar__welcome"><span className="student-topbar__icon"><Icon name="cap" /></span><span>Student portal</span></div>
-          <StudentAccount />
-        </header>
-        <main className="student-content"><Outlet /></main>
+        {!examMode && <header className="student-topbar">
+          <LogoWordmark to="/student" />
+          <StudentNavigation />
+          <div className="student-topbar__actions">
+            <StudentAccount />
+            <button className="icon-button student-menu-toggle" type="button" aria-label="Open student menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
+          </div>
+        </header>}
+        <main className={`student-content${examMode ? ' student-content--exam' : ''}`}><Outlet /></main>
       </div>
     </div>
   )
