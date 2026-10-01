@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import ErrorBoundary from './components/common/ErrorBoundary.jsx'
+import RequireAuth from './components/common/RequireAuth.jsx'
 import PublicLayout from './layouts/PublicLayout.jsx'
 import StaffLayout from './layouts/StaffLayout.jsx'
 import StudentLayout from './layouts/StudentLayout.jsx'
@@ -55,7 +56,7 @@ export default function App() {
           <Route path="*" element={<PlaceholderPage title="Page" />} />
         </Route>
 
-        <Route path="student" element={<StudentLayout />}>
+        <Route path="student" element={<RequireAuth><StudentLayout /></RequireAuth>}>
           <Route index element={<StudentDashboardPage />} />
           <Route path="exams" element={<StudentExamsPage />} />
           <Route path="exam" element={<StudentExamPage />} />

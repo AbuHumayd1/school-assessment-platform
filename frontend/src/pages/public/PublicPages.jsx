@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import Badge from '../../components/common/Badge.jsx'
 import Button from '../../components/common/Button.jsx'
 import Card from '../../components/common/Card.jsx'
 import Icon from '../../components/common/Icon.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
 import './public-pages.css'
 
 const capabilities = [
@@ -258,11 +259,41 @@ export function ContactPage() {
 }
 
 export function SignInPage() {
-  const [notice, setNotice] = useState(false)
+  const { user, loading, signIn } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  function handleSubmit(event) { event.preventDefault(); setNotice(true) }
+  function destination(candidate = user?.is_candidate) {
+    const from = location.state?.from
+    if (from?.pathname?.startsWith('/') && from.pathname !== '/signin') return `${from.pathname}${from.search || ''}${from.hash || ''}`
+    return candidate ? '/student' : '/'
+  }
+  useEffect(() => {
+    if (!loading && user) navigate(destination(user.is_candidate), { replace: true })
+  }, [loading, user, navigate])
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setError('')
+    const fields = new FormData(event.currentTarget)
+    const email = String(fields.get('email') || '').trim()
+    const password = String(fields.get('password') || '')
+    if (!email || !password) { setError('Enter your email address and password.'); return }
+    setSubmitting(true)
+    try {
+      const signedInUser = await signIn({ email, password })
+      navigate(destination(signedInUser.is_candidate), { replace: true })
+    } catch (requestError) {
+      setError(requestError.status === 400
+        ? 'Email or password is incorrect.'
+        : 'We couldn’t sign you in right now. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
   return <div className="public-page public-auth-page"><section className="auth-panel"><div className="auth-panel__brand"><span className="wordmark__mark" aria-hidden="true">SA</span><span>School Assessment<br />Platform</span></div><div className="auth-panel__message"><p className="public-kicker public-kicker--light">Assessment workspace</p><h1>Welcome back</h1><p className="auth-panel__slogan">Create. Assess. Mark. Analyse. Improve.</p><p>Sign in to manage examinations, assessments and results.</p><div className="auth-panel__flow"><span>Create</span><i /><span>Assess</span><i /><span>Mark</span><i /><span>Results</span></div></div><p className="auth-panel__foot">For schools, training providers and examination organisations.</p></section>
-    <section className="auth-form-panel"><div className="auth-form-wrap"><PageIntro eyebrow="Institutional access" title="Sign in to your account">Enter your details to continue.</PageIntro><form className="public-form" onSubmit={handleSubmit}><label className="form-field"><span className="form-label">Email address</span><input className="form-control" type="email" name="email" autoComplete="username" required /></label><label className="form-field"><span className="form-label">Password</span><div className="auth-password"><input className="form-control" type={showPassword ? 'text' : 'password'} name="password" autoComplete="current-password" required /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(value => !value)}><Icon name="eye" size={18} /></button></div></label><div className="auth-options"><label><input type="checkbox" />Remember this device <small>(preview only)</small></label><button type="button" className="text-action" disabled aria-disabled="true">Forgot password?</button></div><Button type="submit" className="auth-submit">Sign In<Icon name="arrow" size={17} /></Button>{notice && <p className="form-hint" role="status">Sign-in is not connected yet. No login was attempted.</p>}</form><p className="auth-form__foot">Sign-in and remembered-device controls are visual previews; no account session is stored.</p></div></section></div>
+    <section className="auth-form-panel"><div className="auth-form-wrap"><PageIntro eyebrow="Institutional access" title="Sign in to your account">Enter your details to continue.</PageIntro><form className="public-form" onSubmit={handleSubmit} noValidate><label className="form-field"><span className="form-label">Email address</span><input className="form-control" type="email" name="email" autoComplete="username" required /></label><label className="form-field"><span className="form-label">Password</span><div className="auth-password"><input className="form-control" type={showPassword ? 'text' : 'password'} name="password" autoComplete="current-password" required /><button type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword(value => !value)}><Icon name="eye" size={18} /></button></div></label><div className="auth-options"><label><input type="checkbox" />Remember this device <small>(preview only)</small></label><button type="button" className="text-action" disabled aria-disabled="true">Forgot password?</button></div>{error && <p className="auth-error" role="alert">{error}</p>}<Button type="submit" loading={submitting || loading} className="auth-submit">Sign In<Icon name="arrow" size={17} /></Button></form><p className="auth-form__foot">Remember-device and password recovery options are not enabled. Sign-in uses a secure server session.</p></div></section></div>
 }
 
 export function SetupPage() {

@@ -253,6 +253,7 @@
 .setup-help { padding-top: 1.5rem; margin-top: 2rem; border-top: 1px solid var(--color-border); color: var(--color-muted); text-align: center; }
 .setup-help a { margin-left: .25rem; color: var(--color-primary); font-weight: 600; text-decoration: none; }
 .auth-options { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.auth-error { margin: 0; color: var(--color-error); font-size: .88rem; }
 .auth-options > label { display: flex; align-items: center; gap: .45rem; color: var(--color-muted); font-size: .78rem; }
 .auth-options > label small { color: var(--color-disabled-text); font-size: .68rem; }
 .auth-options input { accent-color: var(--color-primary); }

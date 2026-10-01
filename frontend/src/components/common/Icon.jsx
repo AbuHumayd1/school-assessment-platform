@@ -20,6 +20,7 @@ const paths = {
   arrow: <><path d="M5 12h14m-6-6 6 6-6 6" /></>,
   eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
   check: <path d="m5 12 4 4L19 6" />,
+  logout: <><path d="M10 17l5-5-5-5m5 5H3" /><path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6" /></>,
 }
 
 export default function Icon({ name, size = 20, className = '' }) {

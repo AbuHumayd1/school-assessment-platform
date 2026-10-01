@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
 import LogoWordmark from '../components/common/LogoWordmark.jsx'
+import Button from '../components/common/Button.jsx'
+import { useAuth } from '../context/AuthContext.jsx'
 
 const navigation = [
   ['/student', 'Dashboard', 'home', true],
@@ -22,6 +24,32 @@ function StudentAccount() {
   return <button className="account-button student-account" type="button" aria-label="Student account menu"><span className="account-avatar"><Icon name="user" size={18} /></span><span className="account-button__label">My account</span><Icon name="chevron" size={16} /></button>
 }
 
+function StudentLogout({ onDone, className = '' }) {
+  const { signOut } = useAuth()
+  const navigate = useNavigate()
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSignOut() {
+    setError('')
+    setLoading(true)
+    try {
+      await signOut()
+      onDone?.()
+      navigate('/signin', { replace: true })
+    } catch {
+      setError('We couldn’t sign you out. Check your connection and try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return <div className={className}>
+    <Button variant="outline" size="small" loading={loading} onClick={handleSignOut}><Icon name="logout" size={16} />Sign out</Button>
+    {error && <p className="auth-error" role="alert">{error}</p>}
+  </div>
+}
+
 export default function StudentLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const { pathname } = useLocation()
@@ -32,7 +60,7 @@ export default function StudentLayout() {
     <div className={`student-layout${examMode ? ' student-layout--exam' : ''}`}>
       {!examMode && <Drawer open={menuOpen} onClose={closeMenu} title="Student menu" className="student-mobile-drawer">
         <StudentNavigation mobile onNavigate={closeMenu} />
-        <div className="student-drawer-account"><StudentAccount /></div>
+        <div className="student-drawer-account"><StudentAccount /><StudentLogout className="student-drawer-logout" onDone={closeMenu} /></div>
       </Drawer>}
 
       <div className="student-workspace">
@@ -41,6 +69,7 @@ export default function StudentLayout() {
           <StudentNavigation />
           <div className="student-topbar__actions">
             <StudentAccount />
+            <StudentLogout className="student-topbar__logout" />
             <button className="icon-button student-menu-toggle" type="button" aria-label="Open student menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
           </div>
         </header>}
