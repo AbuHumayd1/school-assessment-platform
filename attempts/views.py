@@ -17,10 +17,12 @@ from .permissions import IsCandidateUser
 from .serializers import (
     AnswerWriteSerializer, CandidateAttemptSerializer, CandidateExamQuestionSerializer,
     CandidateNavigationSerializer, ReviewFlagSerializer, StaffAttemptSerializer,
-    StartAttemptResponseSerializer, StartAttemptSerializer,
+    IntegrityEventSerializer, StartAttemptResponseSerializer, StartAttemptSerializer,
 )
+from .integrity import ClosedAttemptIntegrityEvent, integrity_state, record_integrity_signal
 from .services import (
-    AttemptConflict, expire_attempt, lock_candidate_attempt, start_attempt,
+    AttemptConflict, CompletionReason, expire_attempt, finalize_attempt,
+    lock_candidate_attempt, start_attempt,
 )
 from .tenancy import candidates_for_user, is_attempt_staff
 
@@ -107,22 +109,40 @@ class AttemptSubmitView(APIView):
     @transaction.atomic
     def post(self, request, attempt_id):
         attempt = lock_candidate_attempt(request.user, attempt_id)
-        if expire_attempt(attempt, actor=request.user):
+        attempt, newly_finalized = finalize_attempt(
+            attempt, reason=CompletionReason.MANUAL, actor=request.user,
+        )
+        if attempt.status == Attempt.Status.EXPIRED:
             return Response({"detail": "Attempt has expired."}, status=status.HTTP_409_CONFLICT)
-        if attempt.status != Attempt.Status.IN_PROGRESS:
-            raise AttemptConflict("Only an in-progress attempt can be submitted.")
-        now = timezone.now()
-        attempt.status = Attempt.Status.SUBMITTED
-        attempt.submitted_at = now
-        attempt.last_activity_at = now
-        attempt.save(update_fields=("status", "submitted_at", "last_activity_at", "updated_at"))
-        from audit.models import AuditEvent
-        from audit.services import record_event
-        record_event(institution=attempt.institution, actor=request.user, event_type=AuditEvent.Type.ATTEMPT_SUBMITTED, resource=attempt)
         return Response({
             "id": attempt.pk, "status": attempt.status, "submitted_at": attempt.submitted_at,
-            "detail": "Attempt submitted. Results are not calculated in this phase.",
+            "detail": "Attempt submitted." if newly_finalized else "Attempt was already submitted.",
         })
+
+
+class AttemptIntegrityView(APIView):
+    permission_classes = (IsCandidateUser,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "attempt_integrity"
+
+    @transaction.atomic
+    def get(self, request, attempt_id):
+        attempt = lock_candidate_attempt(request.user, attempt_id)
+        expire_attempt(attempt, actor=request.user)
+        attempt.refresh_from_db(fields=("status", "submitted_at", "updated_at"))
+        return Response(integrity_state(attempt))
+
+    @transaction.atomic
+    def post(self, request, attempt_id):
+        serializer = IntegrityEventSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = record_integrity_signal(request.user, attempt_id, serializer.validated_data["signal"])
+        except ClosedAttemptIntegrityEvent as error:
+            return Response({"detail": error.detail}, status=status.HTTP_409_CONFLICT)
+        if result.get("event_rejected"):
+            return Response({"detail": "The attempt has expired."}, status=status.HTTP_409_CONFLICT)
+        return Response(result)
 
 
 class AttemptQuestionListView(APIView):

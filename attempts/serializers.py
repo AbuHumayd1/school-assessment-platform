@@ -36,6 +36,20 @@ class ReviewFlagSerializer(serializers.Serializer):
         return attrs
 
 
+class IntegrityEventSerializer(serializers.Serializer):
+    signal = serializers.ChoiceField(choices=(
+        "page_hidden", "page_visible", "page_hide", "window_blur", "window_focus",
+        "navigation_attempt", "copy_attempt", "cut_attempt", "select_all_attempt",
+        "context_menu_attempt", "screenshot_key_attempt",
+    ))
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - {"signal"}
+        if unknown:
+            raise serializers.ValidationError({key: "This field is not accepted." for key in unknown})
+        return attrs
+
+
 class CandidateOptionSerializer(serializers.Serializer):
     id = serializers.IntegerField(source="option_id", read_only=True)
     text = serializers.CharField(source="option.text", read_only=True)
@@ -46,19 +60,19 @@ class CandidateExamQuestionSerializer(serializers.ModelSerializer):
     attempt_question_id = serializers.IntegerField(source="pk", read_only=True)
     question = serializers.SerializerMethodField()
     options = CandidateOptionSerializer(source="ordered_options", many=True, read_only=True)
-    marks = serializers.SerializerMethodField()
     selected_options = serializers.SerializerMethodField()
 
     class Meta:
         model = AttemptQuestion
-        fields = ("id", "attempt_question_id", "order", "question", "options", "marks", "marked_for_review", "selected_options")
+        fields = ("id", "attempt_question_id", "order", "question", "options", "marked_for_review", "selected_options")
 
     def get_question(self, obj):
-        # Explicit allowlist: no explanation, correctness, difficulty, status, tenant, or author fields.
-        return {"id": obj.question_id, "text": obj.question.text}
-
-    def get_marks(self, obj):
-        return obj.marks_available
+        # Explicit candidate allowlist: no answer key, explanation, marks, or authoring metadata.
+        return {
+            "id": obj.question_id,
+            "text": obj.question.text,
+            "question_type": obj.question.question_type,
+        }
 
     def get_selected_options(self, obj):
         answer = Answer.objects.filter(attempt=obj.attempt, question_id=obj.question_id).first()

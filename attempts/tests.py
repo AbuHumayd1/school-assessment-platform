@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -12,8 +13,10 @@ from candidates.models import Candidate
 from groups.models import Group, GroupMembership
 from institutions.models import Institution
 from questions.models import Question, QuestionOption
+from results.models import Result
 from subjects.models import Subject
 from tenants.models import InstitutionMembership
+from audit.models import AuditEvent
 from .models import Answer, AnswerSelection, Attempt, AttemptQuestion, AttemptQuestionOption
 from .services import start_attempt
 
@@ -99,6 +102,12 @@ class CandidateAttemptAPITests(APITestCase):
 
     def question_url(self, attempt, question=None, suffix=""):
         return f"{self.base}{attempt.pk}/questions/{(question or self.mcq).pk}/{suffix}"
+
+    def integrity_url(self, attempt):
+        return f"{self.base}{attempt.pk}/integrity/"
+
+    def integrity_signal(self, attempt, signal, **extra):
+        return self.client.post(self.integrity_url(attempt), {"signal": signal, **extra}, format="json")
 
     def answer(self, attempt, question, option_ids):
         return self.client.put(self.question_url(attempt, question, "answer/"), {"selected_options": option_ids}, format="json")
@@ -415,20 +424,40 @@ class CandidateAttemptAPITests(APITestCase):
 
     def test_expired_attempt_becomes_expired_on_access(self):
         attempt = self.begin()
+        option = self.mcq.options.first()
+        self.assertEqual(self.answer(attempt, self.mcq, [option.pk]).status_code, 200)
         Attempt.objects.filter(pk=attempt.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
         response = self.client.get(f"{self.base}{attempt.pk}/")
         self.assertEqual(response.data["status"], "expired")
-        self.assertIsNone(Attempt.objects.get(pk=attempt.pk).submitted_at)
+        attempt.refresh_from_db()
+        self.assertIsNotNone(attempt.submitted_at)
+        self.assertGreaterEqual(attempt.submitted_at, attempt.expires_at)
+        self.assertEqual(list(AnswerSelection.objects.filter(answer__attempt=attempt).values_list("option_id", flat=True)), [option.pk])
+        result = Result.objects.get(attempt=attempt)
+        self.assertIsNotNone(result.marked_at)
+        self.assertEqual(result.status, Result.Status.PROVISIONAL)
+
+    def test_expiry_finalization_is_idempotent_on_repeated_access(self):
+        attempt = self.begin()
+        Attempt.objects.filter(pk=attempt.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.client.get(f"{self.base}{attempt.pk}/")
+        self.client.get(f"{self.base}{attempt.pk}/")
+        self.assertEqual(Result.objects.filter(attempt=attempt).count(), 1)
+        self.assertEqual(AuditEvent.objects.filter(resource_id=str(attempt.pk), event_type=AuditEvent.Type.ATTEMPT_EXPIRED).count(), 1)
+        result = Result.objects.get(attempt=attempt)
+        self.assertEqual(AuditEvent.objects.filter(resource_id=str(result.pk), event_type=AuditEvent.Type.RESULT_MARKED).count(), 1)
 
     def test_expired_attempt_rejects_answer_save(self):
         attempt = self.begin()
         Attempt.objects.filter(pk=attempt.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
         self.assertEqual(self.answer(attempt, self.mcq, [self.mcq.options.first().pk]).status_code, 409)
+        self.assertTrue(Result.objects.filter(attempt=attempt, marked_at__isnull=False).exists())
 
     def test_expired_attempt_cannot_be_submitted_as_normal(self):
         attempt = self.begin()
         Attempt.objects.filter(pk=attempt.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
         self.assertEqual(self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json").status_code, 409)
+        self.assertTrue(Result.objects.filter(attempt=attempt).exists())
 
     def test_expired_attempt_consumes_attempt_limit(self):
         attempt = self.begin()
@@ -446,11 +475,61 @@ class CandidateAttemptAPITests(APITestCase):
         response = self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
         self.assertEqual(response.data["status"], "submitted")
         self.assertIsNotNone(response.data["submitted_at"])
+        result = Result.objects.get(attempt=attempt)
+        self.assertIsNotNone(result.marked_at)
+        self.assertEqual(result.status, Result.Status.PROVISIONAL)
 
-    def test_submitted_attempt_cannot_be_submitted_twice(self):
+    def test_manual_submission_preserves_answers_and_marks_automatically(self):
+        attempt = self.begin()
+        option = self.mcq.options.first()
+        self.assertEqual(self.answer(attempt, self.mcq, [option.pk]).status_code, 200)
+        response = self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
+        self.assertEqual(response.status_code, 200)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertEqual(list(AnswerSelection.objects.filter(answer__attempt=attempt).values_list("option_id", flat=True)), [option.pk])
+        self.assertTrue(Result.objects.filter(attempt=attempt, marked_at__isnull=False).exists())
+
+    def test_submission_uses_immediate_release_only_when_assessment_allows_it(self):
+        self.assessment.result_visibility = Assessment.ResultVisibility.AFTER_SUBMISSION
+        self.assessment.result_release_mode = Assessment.ResultReleaseMode.IMMEDIATE
+        self.assessment.save(update_fields=("result_visibility", "result_release_mode"))
         attempt = self.begin()
         self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
-        self.assertEqual(self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json").status_code, 409)
+        result = Result.objects.get(attempt=attempt)
+        self.assertEqual(result.status, Result.Status.PUBLISHED)
+        self.assertIsNotNone(result.published_at)
+
+    def test_submission_does_not_bypass_manual_hidden_or_scheduled_release(self):
+        policies = (
+            (Assessment.ResultVisibility.AFTER_SUBMISSION, Assessment.ResultReleaseMode.APPROVAL_REQUIRED),
+            (Assessment.ResultVisibility.AFTER_SUBMISSION, Assessment.ResultReleaseMode.MANUAL_RELEASE),
+            (Assessment.ResultVisibility.HIDDEN, Assessment.ResultReleaseMode.IMMEDIATE),
+            (Assessment.ResultVisibility.SCHEDULED_RELEASE, Assessment.ResultReleaseMode.IMMEDIATE),
+        )
+        for attempt_limit, (visibility, release_mode) in enumerate(policies, start=1):
+            with self.subTest(visibility=visibility, release_mode=release_mode):
+                self.assessment.attempt_limit = attempt_limit
+                self.assessment.result_visibility = visibility
+                self.assessment.result_release_mode = release_mode
+                self.assessment.end_at = timezone.now() + timedelta(hours=1)
+                Assessment.objects.filter(pk=self.assessment.pk).update(
+                    attempt_limit=attempt_limit, result_visibility=visibility,
+                    result_release_mode=release_mode, end_at=self.assessment.end_at,
+                )
+                self.assessment.refresh_from_db()
+                attempt = self.begin()
+                self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
+                self.assertEqual(Result.objects.get(attempt=attempt).status, Result.Status.PROVISIONAL)
+
+    def test_repeated_manual_submission_returns_terminal_state_idempotently(self):
+        attempt = self.begin()
+        self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
+        retry = self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.data["status"], Attempt.Status.SUBMITTED)
+        self.assertEqual(Result.objects.filter(attempt=attempt).count(), 1)
+        self.assertEqual(AuditEvent.objects.filter(resource_id=str(attempt.pk), event_type=AuditEvent.Type.ATTEMPT_SUBMITTED).count(), 1)
 
     def test_submission_locks_answer_changes(self):
         attempt = self.begin()
@@ -466,6 +545,7 @@ class CandidateAttemptAPITests(APITestCase):
         attempt = self.begin()
         response = self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
         self.assertFalse({"score", "grade", "percentage", "result", "passed"}.intersection(response.data))
+        self.assertTrue(Result.objects.filter(attempt=attempt, marked_at__isnull=False).exists())
 
     def test_staff_can_list_attempts_for_their_tenant(self):
         attempt = self.begin()
@@ -501,9 +581,10 @@ class CandidateAttemptAPITests(APITestCase):
         attempt = self.begin()
         response = self.client.get(self.question_url(attempt))
         self.assertEqual(response.status_code, 200)
-        forbidden = {"is_correct", "explanation", "status", "difficulty", "created_by", "reviewed_by", "source", "learning_objective", "institution", "score", "grade", "percentage", "answer_key"}
+        forbidden = {"is_correct", "explanation", "status", "difficulty", "created_by", "reviewed_by", "source", "learning_objective", "institution", "score", "grade", "percentage", "answer_key", "marks", "marks_available"}
         self.assertFalse(forbidden.intersection(response.data))
         self.assertFalse(forbidden.intersection(response.data["question"]))
+        self.assertEqual(response.data["question"]["question_type"], Question.Type.MULTIPLE_CHOICE)
         self.assertTrue(all(not forbidden.intersection(option) for option in response.data["options"]))
 
     def test_candidate_navigation_and_summary_contain_no_result_fields(self):
@@ -556,3 +637,106 @@ class CandidateAttemptAPITests(APITestCase):
     def test_institution_header_must_match_linked_candidate(self):
         response = self.client.post(f"{self.base}start/", {"assessment": self.assessment.pk}, format="json", HTTP_X_INSTITUTION_ID=str(self.other_school.pk))
         self.assertEqual(response.status_code, 403)
+
+    def test_candidate_can_record_own_integrity_event(self):
+        attempt = self.begin()
+        response = self.integrity_signal(attempt, "window_blur")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["interruption_count"], 0)
+        self.assertTrue(AuditEvent.objects.filter(
+            resource_type="attempts.attempt", resource_id=str(attempt.pk), event_type="window_blur",
+        ).exists())
+
+    def test_candidate_cannot_record_integrity_event_for_another_attempt(self):
+        attempt = self.begin()
+        self.client.force_authenticate(self.other_user)
+        own = self.start()
+        self.assertEqual(own.status_code, 201, own.data)
+        self.client.force_authenticate(self.user)
+        response = self.integrity_signal(Attempt.objects.get(pk=own.data["id"]), "page_hidden")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.integrity_signal(attempt, "page_hidden").status_code, 200)
+
+    def test_integrity_endpoint_preserves_tenant_isolation(self):
+        self.client.force_authenticate(self.foreign_user)
+        foreign_response = self.start(self.foreign_assessment)
+        self.assertEqual(foreign_response.status_code, 201, foreign_response.data)
+        self.client.force_authenticate(self.user)
+        foreign_attempt = Attempt.objects.get(pk=foreign_response.data["id"])
+        self.assertEqual(self.integrity_signal(foreign_attempt, "page_hidden").status_code, 404)
+
+    def test_closed_attempt_rejects_new_integrity_event(self):
+        attempt = self.begin()
+        self.assertEqual(self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json").status_code, 200)
+        response = self.integrity_signal(attempt, "page_hidden")
+        self.assertEqual(response.status_code, 409)
+
+    def test_expired_attempt_rejects_new_integrity_event_and_stays_expired(self):
+        attempt = self.begin()
+        attempt.expires_at = timezone.now() - timedelta(seconds=1)
+        attempt.save(update_fields=("expires_at",))
+        response = self.integrity_signal(attempt, "page_hidden")
+        self.assertEqual(response.status_code, 409)
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.EXPIRED)
+
+    def test_correlated_interruption_signals_count_once(self):
+        attempt = self.begin()
+        self.assertEqual(self.integrity_signal(attempt, "page_hidden").data["interruption_count"], 1)
+        self.assertTrue(self.integrity_signal(attempt, "page_hidden").data["deduplicated"])
+        response = self.integrity_signal(attempt, "navigation_attempt")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["deduplicated"])
+        self.assertEqual(response.data["interruption_count"], 1)
+        self.assertEqual(AuditEvent.objects.filter(resource_id=str(attempt.pk), event_type="navigation_attempt").count(), 0)
+
+    def test_visibility_return_resolves_before_a_new_interruption(self):
+        attempt = self.begin()
+        self.assertEqual(self.integrity_signal(attempt, "page_hidden").data["interruption_count"], 1)
+        self.assertEqual(self.integrity_signal(attempt, "page_visible").data["interruption_count"], 1)
+        response = self.integrity_signal(attempt, "page_hidden")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["interruption_count"], 2)
+
+    @override_settings(EXAM_INTEGRITY_INTERRUPTION_LIMIT=2, EXAM_INTEGRITY_DEDUPE_SECONDS=0)
+    def test_interruption_threshold_submits_attempt_and_preserves_saved_answers(self):
+        attempt = self.begin()
+        option = self.mcq.options.first()
+        self.assertEqual(self.answer(attempt, self.mcq, [option.pk]).status_code, 200)
+        self.assertEqual(self.integrity_signal(attempt, "page_hidden").status_code, 200)
+        response = self.integrity_signal(attempt, "navigation_attempt")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["attempt_status"], Attempt.Status.SUBMITTED)
+        self.assertTrue(response.data["automatically_submitted"])
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.SUBMITTED)
+        self.assertIsNotNone(attempt.submitted_at)
+        self.assertEqual(list(AnswerSelection.objects.filter(answer__attempt=attempt).values_list("option_id", flat=True)), [option.pk])
+        result = Result.objects.get(attempt=attempt)
+        self.assertIsNotNone(result.marked_at)
+        self.assertEqual(result.status, Result.Status.PROVISIONAL)
+        self.assertEqual(AuditEvent.objects.filter(resource_id=str(attempt.pk), event_type="integrity_auto_submitted").count(), 1)
+        self.assertEqual(self.answer(attempt, self.mcq_two, [self.mcq_two.options.first().pk]).status_code, 409)
+        self.assertEqual(self.client.patch(self.question_url(attempt, self.mcq_two, "review/"), {"marked_for_review": True}, format="json").status_code, 409)
+        self.assertEqual(self.start().status_code, 403)
+        retry = self.integrity_signal(attempt, "page_hidden")
+        self.assertEqual(retry.status_code, 409)
+        self.assertEqual(Result.objects.filter(attempt=attempt).count(), 1)
+
+    def test_candidate_cannot_supply_authoritative_interruption_count(self):
+        attempt = self.begin()
+        response = self.integrity_signal(attempt, "page_hidden", interruption_count=0)
+        self.assertEqual(response.status_code, 400)
+
+    def test_unsupported_integrity_signal_is_rejected(self):
+        attempt = self.begin()
+        response = self.integrity_signal(attempt, "devtools_detected")
+        self.assertEqual(response.status_code, 400)
+
+    def test_integrity_state_does_not_expose_exam_or_answer_data(self):
+        attempt = self.begin()
+        self.integrity_signal(attempt, "page_hidden")
+        response = self.client.get(self.integrity_url(attempt))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["interruption_count"], 1)
+        self.assertFalse({"questions", "answers", "selected_options", "score", "result", "assessment_title"}.intersection(response.data))

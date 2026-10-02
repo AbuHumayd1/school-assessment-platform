@@ -1,55 +1,442 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import Button from '../../components/common/Button.jsx'
 import Card from '../../components/common/Card.jsx'
 import Icon from '../../components/common/Icon.jsx'
+import LoadingState from '../../components/common/LoadingState.jsx'
 import Modal from '../../components/common/Modal.jsx'
 import { ExamTimer, QuestionNavigator, QuestionRenderer, StudentEmptyState } from '../../components/student/StudentComponents.jsx'
-import { previewExams, previewQuestions } from '../../data/studentPreviewData.js'
+import { clearRememberedAttempt, getAttempt, getAttemptIntegrity, getAttemptQuestion, getAttemptQuestions, recordAttemptIntegrity, rememberActiveAttempt, saveAttemptAnswer, setAttemptReview, submitAttempt } from '../../services/attempts.js'
 
 export default function StudentExamPage() {
-  const location = useLocation()
-  const [searchParams] = useSearchParams()
-  const exam = previewExams.find(item => item.id === location.state?.examId) || previewExams.find(item => item.state === 'available')
+  const { attemptId } = useParams()
+  const [attempt, setAttempt] = useState(null)
+  const [questions, setQuestions] = useState([])
   const [current, setCurrent] = useState(0)
+  const [question, setQuestion] = useState(null)
   const [answers, setAnswers] = useState({})
   const [marked, setMarked] = useState(() => new Set())
-  const [seconds, setSeconds] = useState(() => (exam?.durationMinutes ?? 30) * 60)
+  const [seconds, setSeconds] = useState(0)
+  const [expiryFinalizing, setExpiryFinalizing] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const forceExpired = searchParams.get('previewExpired') === '1'
-  const expired = forceExpired || seconds <= 0
-  const questions = previewQuestions
-  const question = questions[current]
-  const answeredCount = useMemo(() => Object.values(answers).filter(value => Array.isArray(value) ? value.length > 0 : Boolean(value)).length, [answers])
+  const [loading, setLoading] = useState(true)
+  const [questionLoading, setQuestionLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [saveState, setSaveState] = useState({})
+  const [integrity, setIntegrity] = useState(null)
+  const [integrityError, setIntegrityError] = useState('')
+  const [leaveWarning, setLeaveWarning] = useState(false)
+  const [clock, setClock] = useState(null)
+  const answerValuesRef = useRef({})
+  const answerRevisionRef = useRef({})
+  const dirtyQuestionsRef = useRef(new Set())
+  const saveQueuesRef = useRef(new Map())
+  const questionRequestRef = useRef(0)
+  const expirySyncRef = useRef(false)
+  const hiddenTimerRef = useRef(null)
+  const hiddenRef = useRef(false)
+  const blurredRef = useRef(false)
+  const unloadingRef = useRef(false)
+  const signalTimesRef = useRef(new Map())
+
+  const answeredCount = useMemo(() => questions.filter((item, index) => item.answered || (answers[index]?.length > 0)).length, [questions, answers])
+  const markedCount = questions.filter((item, index) => marked.has(index) || item.marked_for_review).length
+  const attemptStatus = attempt?.status
+
+  const applyServerClock = useCallback(payload => {
+    const serverEpoch = new Date(payload.server_time).getTime()
+    if (!Number.isFinite(serverEpoch)) return
+    const offsetMs = serverEpoch - Date.now()
+    const expiresServerEpoch = serverEpoch + Math.max(0, payload.remaining_seconds) * 1000
+    setClock({ offsetMs, expiresServerEpoch })
+    setSeconds(Math.max(0, Math.floor((expiresServerEpoch - (Date.now() + offsetMs)) / 1000)))
+  }, [])
+
+  const refreshAttempt = useCallback(async () => {
+    const payload = await getAttempt(attemptId)
+    setAttempt(payload)
+    if (payload.status === 'in_progress') {
+      applyServerClock(payload)
+      if (payload.remaining_seconds > 0) {
+        expirySyncRef.current = false
+        setExpiryFinalizing(false)
+      } else setExpiryFinalizing(true)
+    }
+    else {
+      setSeconds(0)
+      setExpiryFinalizing(false)
+      clearRememberedAttempt(attemptId)
+    }
+    return payload
+  }, [attemptId, applyServerClock])
+
+  const applyIntegrityState = useCallback(payload => {
+    setIntegrity(payload)
+    setIntegrityError('')
+    if (payload.attempt_status && payload.attempt_status !== 'in_progress') {
+      setAttempt(previous => previous ? { ...previous, status: payload.attempt_status } : previous)
+      setSeconds(0)
+      clearRememberedAttempt(attemptId)
+    }
+  }, [attemptId])
+
+  const reportIntegritySignal = useCallback(async (signal, { quiet = false } = {}) => {
+    const now = Date.now()
+    const previous = signalTimesRef.current.get(signal) || 0
+    if (now - previous < 1500) return null
+    signalTimesRef.current.set(signal, now)
+    try {
+      const payload = await recordAttemptIntegrity(attemptId, signal)
+      applyIntegrityState(payload)
+      return payload
+    } catch (requestError) {
+      if (requestError.status === 409) {
+        try { applyIntegrityState(await getAttemptIntegrity(attemptId)) } catch { /* The attempt summary refresh below remains authoritative. */ }
+      } else if (!quiet) {
+        setIntegrityError(requestError.message || 'This examination signal could not be recorded.')
+      }
+      return null
+    }
+  }, [attemptId, applyIntegrityState])
 
   useEffect(() => {
-    if (expired || submitted) return undefined
-    const timerId = window.setInterval(() => setSeconds(value => Math.max(0, value - 1)), 1000)
-    return () => window.clearInterval(timerId)
-  }, [expired, submitted])
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError('')
+      try {
+        const [summary, navigation] = await Promise.all([getAttempt(attemptId), getAttemptQuestions(attemptId)])
+        if (cancelled) return
+        setAttempt(summary)
+        if (summary.status === 'in_progress') applyServerClock(summary)
+        const ordered = [...navigation].sort((a, b) => a.order - b.order)
+        setQuestions(ordered)
+        setMarked(new Set(ordered.flatMap((item, index) => item.marked_for_review ? [index] : [])))
+        const firstUnanswered = ordered.findIndex(item => !item.answered)
+        setCurrent(firstUnanswered < 0 ? 0 : firstUnanswered)
+      } catch (requestError) {
+        if (!cancelled) {
+          clearRememberedAttempt(attemptId)
+          setError(requestError.message || 'This examination could not be loaded. Check your connection and try again.')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    if (!attemptId || !/^\d+$/.test(attemptId)) {
+      clearRememberedAttempt(attemptId)
+      setError('This examination link is not valid.')
+      setLoading(false)
+    } else load()
+    return () => { cancelled = true }
+  }, [attemptId, applyServerClock])
 
-  if (!exam) return <StudentEmptyState title="No examination selected" description="Choose an available examination from My Exams to open the preview." />
+  useEffect(() => {
+    if (attemptStatus !== 'in_progress') return undefined
+    const interval = window.setInterval(() => {
+      if (!clock) return
+      const remaining = Math.max(0, Math.floor((clock.expiresServerEpoch - (Date.now() + clock.offsetMs)) / 1000))
+      setSeconds(remaining)
+      if (remaining === 0 && !expirySyncRef.current) {
+        expirySyncRef.current = true
+        setExpiryFinalizing(true)
+        refreshAttempt().catch(() => {})
+      }
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [attemptStatus, clock, refreshAttempt])
 
-  if (submitted) return <section className="exam-terminal-state"><span className="exam-terminal-state__icon"><Icon name="clipboard" size={31} /></span><p className="student-eyebrow">Local preview complete</p><h1>Exam Submitted</h1><p>Your preview responses have been closed. No answers were sent to a server, and no result or score was created.</p><div className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></div></section>
-  if (expired) return <section className="exam-terminal-state exam-terminal-state--expired"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">Local preview timer</p><h1>Time&apos;s Up</h1><p>The preview timer has ended. No server submission occurred; an integrated examination will use the server-provided expiry state.</p><div className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></div></section>
+  useEffect(() => {
+    if (attemptStatus !== 'in_progress') return undefined
+    const sync = window.setInterval(() => {
+      refreshAttempt().catch(() => {})
+    }, 20000)
+    return () => window.clearInterval(sync)
+  }, [attemptStatus, refreshAttempt])
 
-  function setAnswer(value) { setAnswers(previous => ({ ...previous, [current]: value })) }
-  function toggleMarked() { setMarked(previous => { const next = new Set(previous); next.has(current) ? next.delete(current) : next.add(current); return next }) }
-  function nextOrSubmit() { if (current === questions.length - 1) setConfirmOpen(true); else setCurrent(value => Math.min(value + 1, questions.length - 1)) }
-  function submitPreview() { setConfirmOpen(false); setSubmitted(true) }
+  useEffect(() => {
+    if (attemptStatus !== 'in_progress') {
+      clearRememberedAttempt(attemptId)
+      return undefined
+    }
+    rememberActiveAttempt(`/student/exam/${attemptId}`)
+    let cancelled = false
+    getAttemptIntegrity(attemptId).then(payload => {
+      if (!cancelled) applyIntegrityState(payload)
+    }).catch(requestError => {
+      if (!cancelled) setIntegrityError(requestError.message || 'Integrity status could not be loaded.')
+    })
 
-  return <div className="student-exam-runner">
-    <header className="exam-runner-header"><Link className="exam-runner-brand" to="/student" aria-label="School Assessment Platform student portal"><span className="wordmark__mark" aria-hidden="true">SA</span><span>School Assessment<br /><small>Student portal</small></span></Link><div className="exam-runner-title"><h1>{exam.title}</h1><p>{exam.subject} · {exam.cohort}</p></div><div className="exam-runner-header__status"><span className="preview-save-state"><Icon name="file" size={16} />Preview only · not saved</span><ExamTimer seconds={seconds} /></div></header>
-    <div className="exam-runner-context"><span><Icon name="clipboard" size={16} />Examination preview</span><span className="exam-runner-context__candidate">{exam.title} · {questions.length} questions</span><span>Responses stay in this page</span></div>
-    <div className="exam-runner-progress"><div><strong>Question {current + 1} of {questions.length}</strong><span>{Math.round(((current + 1) / questions.length) * 100)}% viewed</span></div><div className="exam-progress-track" role="progressbar" aria-label="Question navigation progress" aria-valuemin="0" aria-valuemax={questions.length} aria-valuenow={current + 1}><span style={{ width: `${((current + 1) / questions.length) * 100}%` }} /></div><div className="exam-progress-counts"><span>{answeredCount} answered</span><span>{questions.length - answeredCount} unanswered</span><span>{marked.size} marked</span></div></div>
-    <main className="exam-runner-content"><section className="exam-question-column"><Card as="article" className="exam-question-card"><div className="exam-question-card__heading"><span className="exam-question-index">Q{String(current + 1).padStart(2, '0')}</span><div><strong>{question.type === 'multiple_choice' ? 'Multiple choice' : question.type === 'multiple_select' ? 'Multiple select' : 'True or false'}</strong><span>Question {current + 1}</span></div><Button variant={marked.has(current) ? 'secondary' : 'outline'} size="small" aria-pressed={marked.has(current)} onClick={toggleMarked}><Icon name="file" size={16} />{marked.has(current) ? 'Marked for Review' : 'Mark for Review'}</Button></div><div className="exam-question-card__body"><QuestionRenderer question={question} value={answers[current]} onChange={setAnswer} /><p className="preview-answer-note"><Icon name="file" size={15} />Your choice is held in temporary page state for this preview only.</p></div><div className="exam-question-card__footer"><Button variant="outline" disabled={current === 0} onClick={() => setCurrent(value => Math.max(value - 1, 0))}><Icon name="arrow" size={16} className="icon-flip-horizontal" />Previous</Button><div><Button variant="ghost" onClick={toggleMarked}>{marked.has(current) ? 'Remove review mark' : 'Mark for review'}</Button><Button onClick={nextOrSubmit}>{current === questions.length - 1 ? 'Review & Submit' : 'Next'}<Icon name="arrow" size={17} /></Button></div></div></Card><div className="exam-runner-mobile-nav" aria-label="Question controls"><Button variant="outline" disabled={current === 0} onClick={() => setCurrent(value => Math.max(value - 1, 0))}>Previous</Button><Button onClick={nextOrSubmit}>{current === questions.length - 1 ? 'Review & Submit' : 'Next'}<Icon name="arrow" size={17} /></Button></div></section>
-      <aside className="exam-runner-aside"><QuestionNavigator questions={questions} answers={answers} marked={marked} current={current} onSelect={setCurrent} /><Card className="exam-preview-reminder"><Icon name="bell" size={19} /><div><strong>Preview examination</strong><p>The timer and answers on this screen are local only. No answer checking or server save is connected.</p></div></Card></aside>
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        hiddenRef.current = true
+        if (unloadingRef.current) return
+        window.clearTimeout(hiddenTimerRef.current)
+        hiddenTimerRef.current = window.setTimeout(() => {
+          if (document.visibilityState === 'hidden' && !unloadingRef.current) reportIntegritySignal('page_hidden', { quiet: true })
+        }, 700)
+      } else {
+        window.clearTimeout(hiddenTimerRef.current)
+        hiddenTimerRef.current = null
+        if (hiddenRef.current) {
+          hiddenRef.current = false
+          if (!unloadingRef.current) reportIntegritySignal('page_visible', { quiet: true })
+        }
+        unloadingRef.current = false
+      }
+    }
+
+    function onPageHide() {
+      window.clearTimeout(hiddenTimerRef.current)
+      hiddenTimerRef.current = null
+      // Pagehide is recorded but not counted: refresh and tab close share this browser signal.
+      reportIntegritySignal('page_hide', { quiet: true })
+    }
+
+    function onWindowBlur() {
+      if (document.visibilityState === 'hidden' || blurredRef.current) return
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible' && !document.hasFocus() && !blurredRef.current) {
+          blurredRef.current = true
+          reportIntegritySignal('window_blur', { quiet: true })
+        }
+      }, 900)
+    }
+
+    function onWindowFocus() {
+      unloadingRef.current = false
+      if (hiddenRef.current && document.visibilityState === 'visible') {
+        hiddenRef.current = false
+        window.clearTimeout(hiddenTimerRef.current)
+        if (!unloadingRef.current) reportIntegritySignal('page_visible', { quiet: true })
+      }
+      if (blurredRef.current) {
+        blurredRef.current = false
+        reportIntegritySignal('window_focus', { quiet: true })
+      }
+    }
+
+    function onBeforeUnload(event) {
+      unloadingRef.current = true
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    function onDocumentKeyDown(event) {
+      onExamKeyDown(event)
+    }
+
+    function onIntegrityUpdate(event) {
+      if (String(event.detail?.attemptId) === String(attemptId) && event.detail?.state) {
+        applyIntegrityState(event.detail.state)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onWindowFocus)
+    window.addEventListener('blur', onWindowBlur)
+    window.addEventListener('focus', onWindowFocus)
+    window.addEventListener('beforeunload', onBeforeUnload)
+    window.addEventListener('attempt-integrity-updated', onIntegrityUpdate)
+    document.addEventListener('keydown', onDocumentKeyDown, true)
+    return () => {
+      cancelled = true
+      window.clearTimeout(hiddenTimerRef.current)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onWindowFocus)
+      window.removeEventListener('blur', onWindowBlur)
+      window.removeEventListener('focus', onWindowFocus)
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      window.removeEventListener('attempt-integrity-updated', onIntegrityUpdate)
+      document.removeEventListener('keydown', onDocumentKeyDown, true)
+    }
+  }, [attemptId, attemptStatus, applyIntegrityState, reportIntegritySignal])
+
+  useEffect(() => {
+    if (!attemptStatus || !questions.length || attemptStatus !== 'in_progress' || seconds <= 0) return undefined
+    const item = questions[current]
+    if (!item) return undefined
+    let cancelled = false
+    const requestId = ++questionRequestRef.current
+    setQuestionLoading(true)
+    setQuestion(null)
+    getAttemptQuestion(attemptId, item.id).then(payload => {
+      if (cancelled || requestId !== questionRequestRef.current) return
+      setQuestion(payload)
+      setError('')
+      const restored = payload.selected_options || []
+      answerValuesRef.current = { ...answerValuesRef.current, [current]: restored }
+      setAnswers(previous => ({ ...previous, [current]: restored }))
+      setQuestions(previous => previous.map((entry, index) => index === current ? { ...entry, answered: restored.length > 0, marked_for_review: payload.marked_for_review } : entry))
+      setMarked(previous => {
+        const next = new Set(previous)
+        payload.marked_for_review ? next.add(current) : next.delete(current)
+        return next
+      })
+      setSaveState(previous => ({ ...previous, [current]: 'saved' }))
+    }).catch(requestError => {
+      if (!cancelled && requestId === questionRequestRef.current) setError(requestError.message || 'The question could not be loaded.')
+    }).finally(() => {
+      if (!cancelled && requestId === questionRequestRef.current) setQuestionLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [attemptId, attemptStatus, current, questions.length])
+
+  const persistAnswer = useCallback(index => {
+    const item = questions[index]
+    if (!item || !dirtyQuestionsRef.current.has(item.id)) return Promise.resolve()
+    const previous = saveQueuesRef.current.get(item.id) || Promise.resolve()
+    const task = previous.catch(() => {}).then(async () => {
+      while (dirtyQuestionsRef.current.has(item.id)) {
+        const revision = answerRevisionRef.current[index]
+        const selected = [...(answerValuesRef.current[index] || [])]
+        await saveAttemptAnswer(attemptId, item.id, selected)
+        if (answerRevisionRef.current[index] === revision) {
+          dirtyQuestionsRef.current.delete(item.id)
+          setSaveState(state => ({ ...state, [index]: 'saved' }))
+          setQuestions(list => list.map((row, rowIndex) => rowIndex === index ? { ...row, answered: selected.length > 0 } : row))
+        }
+      }
+      setSaveError('')
+    }).catch(requestError => {
+      setSaveState(state => ({ ...state, [index]: 'error' }))
+      setSaveError(requestError.message || 'Your answer could not be saved. Retry before continuing.')
+      throw requestError
+    })
+    saveQueuesRef.current.set(item.id, task)
+    return task
+  }, [attemptId, questions])
+
+  const flushAnswer = useCallback(index => {
+    const item = questions[index]
+    if (!item) return Promise.resolve()
+    if (dirtyQuestionsRef.current.has(item.id)) return persistAnswer(index)
+    return saveQueuesRef.current.get(item.id) || Promise.resolve()
+  }, [persistAnswer, questions])
+
+  function changeAnswer(value) {
+    const selected = Array.isArray(value) ? value : value ? [value] : []
+    const item = questions[current]
+    answerValuesRef.current = { ...answerValuesRef.current, [current]: selected }
+    answerRevisionRef.current[current] = (answerRevisionRef.current[current] || 0) + 1
+    dirtyQuestionsRef.current.add(item.id)
+    setAnswers(previous => ({ ...previous, [current]: selected }))
+    setQuestions(previous => previous.map((entry, index) => index === current ? { ...entry, answered: selected.length > 0 } : entry))
+    setSaveState(previous => ({ ...previous, [current]: 'saving' }))
+    persistAnswer(current).catch(() => {})
+  }
+
+  async function selectQuestion(index) {
+    if (index === current) return
+    try {
+      await flushAnswer(current)
+      setCurrent(index)
+      setSaveError('')
+    } catch { /* Keep the candidate on this question until its answer saves. */ }
+  }
+
+  async function changeReview() {
+    const item = questions[current]
+    const wasMarked = marked.has(current)
+    const nextValue = !wasMarked
+    setMarked(previous => { const next = new Set(previous); nextValue ? next.add(current) : next.delete(current); return next })
+    setQuestions(previous => previous.map((entry, index) => index === current ? { ...entry, marked_for_review: nextValue } : entry))
+    try {
+      await setAttemptReview(attemptId, item.id, nextValue)
+    } catch (requestError) {
+      setMarked(previous => { const next = new Set(previous); wasMarked ? next.add(current) : next.delete(current); return next })
+      setQuestions(previous => previous.map((entry, index) => index === current ? { ...entry, marked_for_review: wasMarked } : entry))
+      setError(requestError.message || 'The review flag could not be saved. Try again.')
+    }
+  }
+
+  async function handleAttemptNavigation() {
+    setLeaveWarning(true)
+    await reportIntegritySignal('navigation_attempt')
+  }
+
+  function blockContentExtraction(event, signal) {
+    event.preventDefault()
+    reportIntegritySignal(signal, { quiet: true })
+  }
+
+  function onExamKeyDown(event) {
+    const key = event.key.toLowerCase()
+    // Browser controls are deterrence/signals only. Server-side authorization, timing, persistence and policy remain authoritative; OS screenshots cannot be blocked here.
+    if ((event.ctrlKey || event.metaKey) && ['c', 'x', 'a'].includes(key)) {
+      event.preventDefault()
+      reportIntegritySignal(key === 'c' ? 'copy_attempt' : key === 'x' ? 'cut_attempt' : 'select_all_attempt', { quiet: true })
+    } else if (event.key === 'PrintScreen') {
+      // Browser key events are only a signal; OS screenshots cannot be reliably prevented here.
+      reportIntegritySignal('screenshot_key_attempt', { quiet: true })
+    }
+  }
+
+  async function moveTo(index) {
+    try {
+      await flushAnswer(current)
+      if (index >= questions.length) setConfirmOpen(true)
+      else setCurrent(index)
+      setSaveError('')
+    } catch { /* A save failure must not discard the current answer. */ }
+  }
+
+  async function confirmSubmit() {
+    setSubmitting(true)
+    setSaveError('')
+    try {
+      await Promise.all(questions.map((_, index) => flushAnswer(index)))
+      const result = await submitAttempt(attemptId)
+      setAttempt(previous => ({ ...previous, status: result.status, submitted_at: result.submitted_at }))
+      clearRememberedAttempt(attemptId)
+      setConfirmOpen(false)
+      setSeconds(0)
+    } catch (requestError) {
+      try {
+        const current = await refreshAttempt()
+        if (current.status !== 'in_progress') {
+          setConfirmOpen(false)
+          setSaveError('')
+          return
+        }
+      } catch { /* Keep the original submission error when the status cannot be confirmed. */ }
+      setSaveError(requestError.message || 'The attempt could not be submitted. Your saved answers remain available.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) return <LoadingState label="Loading your examination…" />
+  if (error && !attempt) return <div className="student-page"><StudentEmptyState title="Examination unavailable" description={error} /><p className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></p></div>
+  if (attempt?.status === 'submitted') return <section className="exam-terminal-state"><span className="exam-terminal-state__icon"><Icon name="clipboard" size={31} /></span><p className="student-eyebrow">Submission received</p><h1>Exam Submitted</h1><p>Your examination has been submitted. Check My Results for updates from your institution.</p><div className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></div></section>
+  if (attempt?.status !== 'in_progress') return <section className="exam-terminal-state exam-terminal-state--expired"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">Examination window</p><h1>Time&apos;s Up</h1><p>Your saved answers have been marked. Check My Results when your institution releases the result.</p><div className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></div></section>
+  if (expiryFinalizing || seconds <= 0) return <section className="exam-terminal-state exam-terminal-state--expired" role="status"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">Examination window</p><h1>Finalising your examination</h1><p>Time is up. We are confirming your examination status with the server. This page will update when the connection is restored.</p></section>
+
+  const optionQuestion = question ? {
+    id: question.id,
+    type: question.question.question_type,
+    prompt: question.question.text,
+    options: question.options.map(option => ({ id: option.id, label: option.text })),
+  } : null
+  const statusLabel = saveState[current] === 'saving' ? 'Saving answer…' : saveState[current] === 'error' ? 'Answer not saved' : 'All changes saved'
+
+  return <div className="student-exam-runner" onCopy={event => blockContentExtraction(event, 'copy_attempt')} onCut={event => blockContentExtraction(event, 'cut_attempt')} onContextMenu={event => blockContentExtraction(event, 'context_menu_attempt')}>
+    <header className="exam-runner-header"><div className="exam-runner-brand"><span className="wordmark__mark" aria-hidden="true">SA</span><span>School Assessment<br /><small>Student portal</small></span></div><div className="exam-runner-title"><h1>{attempt.assessment_title}</h1><p>{attempt.assessment_type} · Attempt {attempt.attempt_number}</p></div><div className="exam-runner-header__status"><span className="preview-save-state" role="status"><Icon name="file" size={16} />{statusLabel}</span><ExamTimer seconds={seconds} /></div></header>
+    <div className="exam-runner-context"><span><Icon name="clipboard" size={16} />Live examination</span><span className="exam-runner-context__candidate">{questions.length} questions</span><span>Answers save automatically</span></div>
+    {(integrity?.warning || leaveWarning) && integrity?.interruption_count > 0 && <aside className="exam-integrity-warning" role="alert"><Icon name="bell" size={19} /><div><strong>Examination interruption detected.</strong><p>Leaving the examination is recorded. Repeated interruptions may cause your examination to be submitted automatically.</p><span>Warning {integrity.interruption_count} of {integrity.interruption_limit}</span></div></aside>}
+    {integrityError && <p className="exam-integrity-sync-error" role="status">Integrity status could not sync. Keep this page open and check your connection.</p>}
+    <div className="exam-runner-progress"><div><strong>Question {current + 1} of {questions.length}</strong><span>Question {questions[current]?.order ?? current + 1}</span></div><div className="exam-progress-track" role="progressbar" aria-label="Answered questions" aria-valuemin="0" aria-valuemax={questions.length} aria-valuenow={answeredCount}><span style={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }} /></div><div className="exam-progress-counts"><span>{answeredCount} answered</span><span>{questions.length - answeredCount} unanswered</span><span>{markedCount} marked</span></div></div>
+    <main className="exam-runner-content"><section className="exam-question-column"><Card as="article" className="exam-question-card"><div className="exam-question-card__heading"><span className="exam-question-index">Q{String(current + 1).padStart(2, '0')}</span><div><strong>{question?.question?.question_type === 'multiple_choice' ? 'Multiple choice' : question?.question?.question_type === 'multiple_select' ? 'Multiple select' : question?.question?.question_type === 'true_false' ? 'True or false' : 'Question'}</strong><span>Question {current + 1}</span></div><Button variant={marked.has(current) ? 'secondary' : 'outline'} size="small" aria-pressed={marked.has(current)} onClick={changeReview} disabled={questionLoading || !question}><Icon name="file" size={16} />{marked.has(current) ? 'Marked for Review' : 'Mark for Review'}</Button></div><div className="exam-question-card__body">{questionLoading || !optionQuestion ? <LoadingState label="Loading question…" /> : <QuestionRenderer question={optionQuestion} value={answers[current] || []} onChange={changeAnswer} />}<p className="preview-answer-note" role="status"><Icon name="file" size={15} />{statusLabel}</p>{(saveError || error) && <p className="auth-error" role="alert">{saveError || error}</p>}{saveError && <Button variant="outline" size="small" onClick={() => flushAnswer(current).catch(() => {})}>Retry save</Button>}</div><div className="exam-question-card__footer"><Button variant="outline" disabled={current === 0 || questionLoading} onClick={() => moveTo(current - 1)}><Icon name="arrow" size={16} className="icon-flip-horizontal" />Previous</Button><div><Button variant="ghost" disabled={questionLoading || !question} onClick={changeReview}>{marked.has(current) ? 'Remove review mark' : 'Mark for review'}</Button><Button disabled={questionLoading || !question} onClick={() => moveTo(current + 1)}>{current === questions.length - 1 ? 'Review & Submit' : 'Next'}<Icon name="arrow" size={17} /></Button></div></div></Card><div className="exam-runner-mobile-nav" aria-label="Question controls"><Button variant="outline" disabled={current === 0 || questionLoading} onClick={() => moveTo(current - 1)}>Previous</Button><Button disabled={questionLoading || !question} onClick={() => moveTo(current + 1)}>{current === questions.length - 1 ? 'Review & Submit' : 'Next'}<Icon name="arrow" size={17} /></Button></div></section>
+      <aside className="exam-runner-aside"><QuestionNavigator questions={questions} answers={answers} marked={marked} current={current} onSelect={selectQuestion} /><Card className="exam-preview-reminder"><Icon name="bell" size={19} /><div><strong>Your progress is saved</strong><p>Your responses and review flags are saved to this attempt and restored if you return.</p></div></Card></aside>
     </main>
-    <footer className="exam-runner-footer"><span><Icon name="cap" size={15} />School Assessment Platform · Student portal</span><Link to="/student/exams">Exit preview</Link></footer>
+    <footer className="exam-runner-footer"><span><Icon name="cap" size={15} />School Assessment Platform · Student portal</span><Button variant="ghost" size="small" onClick={handleAttemptNavigation}>Exit examination</Button></footer>
 
-    <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Review & Submit" className="submit-exam-modal" footer={<><Button variant="outline" onClick={() => setConfirmOpen(false)}>Continue Reviewing</Button><Button onClick={submitPreview}>Submit Exam</Button></>}>
-      <p>Check your progress before submitting this local preview.</p><div className="submit-summary"><span>Answered<strong>{answeredCount}</strong></span><span>Unanswered<strong>{questions.length - answeredCount}</strong></span><span>Marked for Review<strong>{marked.size}</strong></span></div><p className="form-hint">Submitting only changes this page to a preview confirmation. No server request will be made.</p>
+    <Modal open={confirmOpen} onClose={() => !submitting && setConfirmOpen(false)} title="Review & Submit" className="submit-exam-modal" footer={<><Button variant="outline" disabled={submitting} onClick={() => setConfirmOpen(false)}>Continue Reviewing</Button><Button loading={submitting} onClick={confirmSubmit}>Submit Exam</Button></>}>
+      <p>Submit your examination when you are ready. You cannot change answers after submission.</p><div className="submit-summary"><span>Answered<strong>{answeredCount}</strong></span><span>Unanswered<strong>{questions.length - answeredCount}</strong></span><span>Marked for Review<strong>{markedCount}</strong></span></div>{saveError && <p className="auth-error" role="alert">{saveError}</p>}
     </Modal>
   </div>
 }

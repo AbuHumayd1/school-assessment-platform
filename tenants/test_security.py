@@ -299,11 +299,15 @@ class PhaseFiveSecurityTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
-    def test_second_submission_cannot_reopen_attempt(self):
+    def test_second_submission_returns_existing_terminal_state(self):
         self.attempt_a.status = Attempt.Status.SUBMITTED
         self.attempt_a.save(update_fields=("status",))
         self.client.force_authenticate(self.student_a)
-        self.assertEqual(self.client.post(f"/api/v1/attempts/{self.attempt_a.pk}/submit/").status_code, status.HTTP_409_CONFLICT)
+        response = self.client.post(f"/api/v1/attempts/{self.attempt_a.pk}/submit/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], Attempt.Status.SUBMITTED)
+        self.assertEqual(Attempt.objects.get(pk=self.attempt_a.pk).status, Attempt.Status.SUBMITTED)
+        self.assertEqual(Result.objects.filter(attempt=self.attempt_a).count(), 1)
 
     def test_foreign_tenant_staff_cannot_mark_attempt(self):
         self.client.force_authenticate(self.admin_b)

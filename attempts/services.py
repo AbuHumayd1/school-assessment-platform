@@ -24,6 +24,17 @@ class AttemptConflict(APIException):
     default_code = "attempt_conflict"
 
 
+class CompletionReason:
+    MANUAL = "manual"
+    TIME_EXPIRED = "time_expired"
+    INTEGRITY = "integrity"
+
+    VALUES = {MANUAL, TIME_EXPIRED, INTEGRITY}
+
+
+INTEGRITY_AUTO_SUBMITTED_EVENT = "integrity_auto_submitted"
+
+
 def resolve_candidate(user, institution_id=None):
     qs = candidates_for_user(user)
     if institution_id is not None:
@@ -155,19 +166,70 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
 
 
 @transaction.atomic
-def expire_attempt(attempt, now=None, *, actor=None):
+def finalize_attempt(attempt_or_id, *, reason, now=None, actor=None, metadata=None):
+    """Close and mark an attempt atomically; the deadline always overrides the requested reason."""
+    if reason not in CompletionReason.VALUES:
+        raise ValueError(f"Unsupported attempt completion reason: {reason}")
+    attempt_id = getattr(attempt_or_id, "pk", attempt_or_id)
+    locked = Attempt.objects.select_for_update().select_related("institution", "assessment", "candidate").get(pk=attempt_id)
+    # Measure the deadline after acquiring the row lock so lock wait cannot extend the attempt.
     now = now or timezone.now()
-    locked = Attempt.objects.select_for_update().select_related("institution").get(pk=attempt.pk)
-    if locked.status == Attempt.Status.IN_PROGRESS and now >= locked.expires_at:
-        locked.status = Attempt.Status.EXPIRED
-        # submitted_at records an explicit candidate submission only; expiry is represented by status.
-        locked.save(update_fields=("status", "updated_at"))
-        attempt.status = locked.status
-        attempt.updated_at = locked.updated_at
-        record_event(institution=locked.institution, actor=actor, event_type=AuditEvent.Type.ATTEMPT_EXPIRED, resource=locked)
-        return True
+    newly_finalized = False
+
+    if locked.status == Attempt.Status.IN_PROGRESS:
+        if reason == CompletionReason.TIME_EXPIRED and now < locked.expires_at:
+            return locked, False
+        actual_reason = CompletionReason.TIME_EXPIRED if now >= locked.expires_at else reason
+        locked.status = (Attempt.Status.EXPIRED if actual_reason == CompletionReason.TIME_EXPIRED
+                         else Attempt.Status.SUBMITTED)
+        locked.submitted_at = now
+        locked.last_activity_at = now
+        locked.save(update_fields=("status", "submitted_at", "last_activity_at", "updated_at"))
+        newly_finalized = True
+
+        if actual_reason == CompletionReason.TIME_EXPIRED:
+            record_event(
+                institution=locked.institution, actor=actor, event_type=AuditEvent.Type.ATTEMPT_EXPIRED,
+                resource=locked, metadata={"reason": actual_reason},
+            )
+        else:
+            record_event(
+                institution=locked.institution, actor=actor, event_type=AuditEvent.Type.ATTEMPT_SUBMITTED,
+                resource=locked,
+                metadata={"reason": "integrity_interruption_limit" if actual_reason == CompletionReason.INTEGRITY else actual_reason},
+            )
+            if actual_reason == CompletionReason.INTEGRITY:
+                record_event(
+                    institution=locked.institution, actor=actor, event_type=INTEGRITY_AUTO_SUBMITTED_EVENT,
+                    resource=locked, metadata=metadata or {},
+                )
+    elif locked.status not in (Attempt.Status.SUBMITTED, Attempt.Status.EXPIRED):
+        raise AttemptConflict("Only an in-progress attempt can be finalized.")
+    elif locked.status == Attempt.Status.EXPIRED and locked.submitted_at is None:
+        # Repair legacy lazy-expiry rows using their authoritative deadline.
+        locked.submitted_at = locked.expires_at
+        locked.save(update_fields=("submitted_at", "updated_at"))
+
+    # Keep marking inside this transaction so a failure rolls back the completion too.
+    # The trusted finalization service invokes the existing Results Engine without
+    # treating a candidate actor as a result marker.
+    from results.models import Result
+    if not Result.objects.filter(attempt_id=locked.pk).exists():
+        from results.services import mark_attempt
+        mark_attempt(locked.pk, now=now)
+    return locked, newly_finalized
+
+
+@transaction.atomic
+def expire_attempt(attempt, now=None, *, actor=None):
+    locked, newly_expired = finalize_attempt(
+        attempt, reason=CompletionReason.TIME_EXPIRED, now=now, actor=actor,
+    )
     attempt.status = locked.status
-    return False
+    attempt.submitted_at = locked.submitted_at
+    attempt.last_activity_at = locked.last_activity_at
+    attempt.updated_at = locked.updated_at
+    return newly_expired
 
 
 def lock_candidate_attempt(user, attempt_id):
