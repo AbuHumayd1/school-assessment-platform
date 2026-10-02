@@ -46,13 +46,13 @@ export function ExamCard({ exam, action, actionLabel, onAction, children, classN
 export function QuestionNavigator({ questions, answers, marked, current, onSelect }) {
   function questionState(index) {
     if (index === current) return 'current'
-    if (marked.has(index)) return 'marked'
-    if (answers[index] !== undefined && (Array.isArray(answers[index]) ? answers[index].length > 0 : answers[index] !== '')) return 'answered'
+    if (marked.has(index) || questions[index]?.marked_for_review) return 'marked'
+    if (questions[index]?.answered || (answers[index] !== undefined && (Array.isArray(answers[index]) ? answers[index].length > 0 : answers[index] !== ''))) return 'answered'
     return 'unanswered'
   }
   const answeredCount = questions.filter((_, index) => {
     const value = answers[index]
-    return Array.isArray(value) ? value.length > 0 : Boolean(value)
+    return questions[index]?.answered || (Array.isArray(value) ? value.length > 0 : Boolean(value))
   }).length
   const counts = { answered: answeredCount, unanswered: questions.length - answeredCount, marked: marked.size }
   return <Card as="section" className="question-navigator" aria-labelledby="question-nav-title">
@@ -73,14 +73,14 @@ export function QuestionRenderer({ question, value, onChange }) {
   const inputType = isMultiple ? 'checkbox' : 'radio'
   return <fieldset className="question-renderer"><legend>{question.prompt}</legend><p className="question-renderer__instruction">{isMultiple ? 'Select all that apply.' : question.type === 'true_false' ? 'Choose True or False.' : 'Select one answer.'}</p><div className="answer-options">{question.options.map((option, index) => {
     const checked = selected.includes(option.id)
-    return <label key={option.id} className={`answer-option${checked ? ' answer-option--selected' : ''}`}><input type={inputType} name={`question-${question.id}`} checked={checked} onChange={() => toggle(option.id)} /><span className="answer-option__letter">{question.type === 'true_false' ? (option.id === 'true' ? 'T' : 'F') : String.fromCharCode(65 + index)}</span><span>{option.label}</span>{checked && <span className="answer-option__selected-label">Selected</span>}</label>
+    return <label key={option.id} className={`answer-option${checked ? ' answer-option--selected' : ''}`}><input type={inputType} name={`question-${question.id}`} checked={checked} onChange={() => toggle(option.id)} /><span className="answer-option__letter">{question.type === 'true_false' ? (/^true$/i.test(option.label.trim()) ? 'T' : 'F') : String.fromCharCode(65 + index)}</span><span>{option.label}</span>{checked && <span className="answer-option__selected-label">Selected</span>}</label>
   })}</div></fieldset>
 }
 
 export function ExamTimer({ seconds }) {
   const minutes = Math.floor(seconds / 60)
   const remainder = seconds % 60
-  return <div className={`exam-timer${seconds <= 300 ? ' exam-timer--urgent' : ''}`} role="timer" aria-label={`${minutes} minutes ${remainder} seconds remaining`}><Icon name="clock" size={19} /><span>{String(minutes).padStart(2, '0')}:{String(remainder).padStart(2, '0')}</span><small>preview time</small></div>
+  return <div className={`exam-timer${seconds <= 300 ? ' exam-timer--urgent' : ''}`} role="timer" aria-label={`${minutes} minutes ${remainder} seconds remaining`}><Icon name="clock" size={19} /><span>{String(minutes).padStart(2, '0')}:{String(remainder).padStart(2, '0')}</span><small>time remaining</small></div>
 }
 
 export function ResultDetails({ result }) {

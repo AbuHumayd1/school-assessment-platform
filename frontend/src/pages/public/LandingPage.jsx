@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Badge from '../../components/common/Badge.jsx'
 import Button from '../../components/common/Button.jsx'
 import Card from '../../components/common/Card.jsx'
 import Icon from '../../components/common/Icon.jsx'
+import { PublicLocaleTree, usePublicLocale } from '../../context/PublicLocaleContext.jsx'
 import './landing.css'
 
 const audiences = [
@@ -40,9 +42,30 @@ const plans = [
   { name: 'Institution', description: 'For institutions with broader assessment and coordination requirements.', items: ['Institution requirements', 'Learner groups and subjects', 'Examination schedule'], action: 'Contact us' },
 ]
 
+const audienceMessages = [
+  { english: <>Create. Assess. Mark.<br />Analyse. Improve.</>, arabic: <>أنشئ. قيّم. صحّح.<br />حلّل. طوّر.</>, accent: '#6B74D6' },
+  { english: <>Built for Schools<br />That Take Assessment Seriously.</>, arabic: <>للمدارس التي تأخذ<br />التقييم بجدية.</>, accent: '#587BD8' },
+  { english: <>Built for Online Madrasahs<br />and Islamic Institutes</>, arabic: <>صُمِّم للمدارس والمعاهد<br />الإسلامية عبر الإنترنت</>, accent: '#559B91', madrasah: true },
+  { english: <>Built for Courses &amp; Training<br />That Develop Skills.</>, arabic: <>للدورات والبرامج التدريبية<br />التي تصقل المهارات.</>, accent: '#8A75D8' },
+  { english: <>Built for Professional<br />Examinations.</>, arabic: <>للامتحانات المهنية<br />والشهادات التخصصية.</>, accent: '#4546B4' },
+  { english: <>Built for CBT<br />and Tutorial Centres.</>, arabic: <>لمراكز الاختبارات المحوسبة<br />والدروس التعليمية.</>, accent: '#647BD2' },
+  { english: <>Built for Competitions<br />and Educational Programmes.</>, arabic: <>للمسابقات والبرامج<br />التعليمية المنظمة.</>, accent: '#756BD5' },
+]
+
+function HeroHeadline({ active }) {
+  const { locale } = usePublicLocale()
+  const slide = audienceMessages[active]
+  return <h1 id="landing-title" className={`landing-hero__headline${slide.madrasah ? ' landing-hero__headline--madrasah' : ''}`}>
+    <span key={`${locale}-${active}`} className="landing-hero__headline-content" lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+      {locale === 'ar' ? slide.arabic : slide.english}
+      {slide.madrasah && locale === 'en' && <span className="landing-hero__headline-arabic" lang="ar" dir="rtl">صُمِّم للمدارس والمعاهد الإسلامية</span>}
+    </span>
+  </h1>
+}
+
 function ProductPreview() {
   return (
-    <div className="product-preview" aria-label="Illustration of an assessment workspace">
+    <PublicLocaleTree><div className="product-preview" aria-label="Illustration of an assessment workspace">
       <div className="product-preview__browserbar" aria-hidden="true">
         <div className="product-preview__dots"><i /><i /><i /></div>
         <span>Assessment workspace</span>
@@ -71,30 +94,37 @@ function ProductPreview() {
           <div className="product-preview__schedule-footer"><span><Icon name="file" size={14} /> Questions</span><span><Icon name="clipboard" size={14} /> Assessments</span><span><Icon name="chart" size={14} /> Results</span></div>
         </div>
       </div>
-    </div>
+    </div></PublicLocaleTree>
   )
 }
 
-function ContentCard({ item, className = '' }) {
+function ContentCard({ item, className = '', gradientTone = '' }) {
   return (
-    <Card as="article" className={['landing-card', className].filter(Boolean).join(' ')}>
+    <PublicLocaleTree><Card as="article" className={['landing-card', gradientTone && `gradient-card gradient-card--${gradientTone}`, className].filter(Boolean).join(' ')}>
       <span className="landing-card__icon"><Icon name={item.icon} size={19} /></span>
       {item.tag && <span className="landing-card__tag">{item.tag}</span>}
       <h3>{item.title}</h3>
       <p>{item.description}</p>
-    </Card>
+    </Card></PublicLocaleTree>
   )
 }
 
 export default function LandingPage() {
+  const [active, setActive] = useState(0)
+  useEffect(() => {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (reducedMotion) return undefined
+    const timer = window.setInterval(() => setActive(index => (index + 1) % audienceMessages.length), 4500)
+    return () => window.clearInterval(timer)
+  }, [])
   return (
-    <div className="landing-page">
-      <section className="landing-hero" aria-labelledby="landing-title">
+    <PublicLocaleTree><div className="landing-page">
+      <section className="landing-hero" aria-labelledby="landing-title" style={{ '--hero-accent': audienceMessages[active].accent }}>
         <div className="landing-hero__copy">
           <Badge variant="primary" className="landing-eyebrow"><Icon name="staff" size={13} /> Assessment &amp; Examination Platform</Badge>
-          <h1 id="landing-title">Create. Assess.<br className="landing-title-break--mobile" />{' '}Mark.<br className="landing-title-break--desktop" /><br className="landing-title-break--mobile" />{' '}Analyse. Improve.</h1>
+          <HeroHeadline active={active} />
           <p className="landing-hero__description">
-            A simple platform for creating questions, conducting examinations, marking submissions and managing results — whether you&apos;re running a school, course, training programme or professional examination.
+            Create questions, conduct examinations, mark submissions and manage results in one place. Built for schools, courses, training programmes and professional examinations.
           </p>
           <div className="landing-hero__actions">
             <Button as={Link} to="/setup" size="large">Setup Preview<Icon name="arrow" size={18} /></Button>
@@ -112,19 +142,19 @@ export default function LandingPage() {
           <p>From classroom quizzes to certification examinations, the platform adapts to your assessment format.</p>
         </div>
         <div className="landing-grid landing-grid--audiences">
-          {audiences.map(item => <ContentCard key={item.title} item={item} />)}
+          {audiences.map((item, index) => <ContentCard key={item.title} item={item} gradientTone={['soft-indigo', 'soft-blue', 'soft-violet'][index % 3]} />)}
         </div>
       </section>
 
       <section className="landing-section landing-process" aria-labelledby="process-title">
         <div className="landing-section__heading landing-section__heading--center">
-          <p className="landing-kicker">Simple assessment workflow</p>
+          <p className="landing-kicker">A clear assessment workflow</p>
           <h2 id="process-title">How It Works</h2>
           <p>A straightforward process from initial question authoring to final results.</p>
         </div>
         <ol className="landing-steps">
           {steps.map((step, index) => (
-            <li className="landing-step" key={step.title}>
+            <li className={`landing-step${index < 4 ? ` gradient-card gradient-card--${['soft-indigo', 'soft-blue', 'soft-violet'][index % 3]}` : ''}`} key={step.title}>
               <div className="landing-step__top"><span className="landing-step__number">{String(index + 1).padStart(2, '0')}</span><span className="landing-step__label">STEP {index + 1}</span></div>
               <h3>{step.title}</h3><p>{step.description}</p>
             </li>
@@ -138,19 +168,39 @@ export default function LandingPage() {
           <p>Run structured assessments with a clear workflow focused on question creation, examination delivery and results.</p>
         </div>
         <div className="landing-grid landing-grid--features">
-          {features.map(item => <ContentCard key={item.title} item={item} className="landing-card--feature" />)}
+          {features.map((item, index) => <ContentCard key={item.title} item={item} className="landing-card--feature" gradientTone={index < 6 ? ['soft-indigo', 'soft-blue', 'soft-violet'][index % 3] : ''} />)}
         </div>
+      </section>
+
+      <section className="landing-vision gradient-card gradient-card--soft-indigo" aria-labelledby="landing-vision-title">
+        <div className="landing-vision__copy">
+          <p className="landing-kicker">Assessment is the starting point</p>
+          <h2 id="landing-vision-title">Built for assessment today. Built to grow with education tomorrow.</h2>
+          <p>Institutions can create, conduct, manage and evaluate structured examinations today. Our longer-term direction connects assessment with teaching, learning, academic management and the work of running an institution.</p>
+          <strong>Assessment is where we’re starting. Better education is where we’re going.</strong>
+        </div>
+        <ol className="education-system" aria-label="Education platform direction">
+          {[
+            ['Assessment', 'Available now', 'current'],
+            ['Teaching', 'Future direction', 'future'],
+            ['Learning', 'Future direction', 'future'],
+            ['Academic management', 'Future direction', 'future'],
+            ['Insight & improvement', 'Future direction', 'future'],
+          ].map(([label, status, state], index) => <li className={`education-system__node education-system__node--${state}`} key={label}>
+            <span className="education-system__index">0{index + 1}</span><strong>{label}</strong><small>{status}</small>
+          </li>)}
+        </ol>
       </section>
 
       <section className="landing-section landing-pricing" aria-labelledby="pricing-title">
         <div className="landing-section__heading landing-section__heading--center">
           <p className="landing-kicker">Institutional solutions</p>
-          <h2 id="pricing-title">Simple Plans Sized for Your Institution</h2>
+          <h2 id="pricing-title">Plans Aligned with Your Institution</h2>
           <p>Explore an approach suited to your organisation and assessment needs.</p>
         </div>
         <div className="landing-plans">
           {plans.map(plan => (
-            <Card as="article" className={`landing-plan${plan.featured ? ' landing-plan--featured' : ''}`} key={plan.name}>
+            <Card as="article" className={`landing-plan gradient-card gradient-card--${plan.featured ? 'accent' : plan.name === 'Starter' ? 'soft-indigo' : 'soft-blue'}${plan.featured ? ' landing-plan--featured' : ''}`} key={plan.name}>
               {plan.featured && <span className="landing-plan__recommended">Flexible requirements</span>}
               <span className="landing-plan__eyebrow">{plan.name.toUpperCase()}</span>
               <h3>{plan.name}</h3><p>{plan.description}</p>
@@ -162,10 +212,10 @@ export default function LandingPage() {
         <p className="landing-pricing__note">Contact us to discuss an arrangement for your organisation.</p>
       </section>
 
-      <section className="landing-final-cta" aria-labelledby="final-cta-title">
+      <section className="landing-final-cta gradient-card gradient-card--deep" aria-labelledby="final-cta-title">
         <div>
           <p className="landing-kicker landing-kicker--light">Clearer assessment workflow</p>
-          <h2 id="final-cta-title">Ready to Run Simpler, More Dependable Assessments?</h2>
+          <h2 id="final-cta-title">Ready to Manage Assessments with Confidence?</h2>
           <p>Join schools, colleges, training providers and exam organisations to manage each examination with assurance.</p>
         </div>
         <div className="landing-final-cta__actions">
@@ -173,6 +223,6 @@ export default function LandingPage() {
           <Button as={Link} to="/setup" className="landing-final-cta__primary">Setup Preview<Icon name="arrow" size={17} /></Button>
         </div>
       </section>
-    </div>
+    </div></PublicLocaleTree>
   )
 }

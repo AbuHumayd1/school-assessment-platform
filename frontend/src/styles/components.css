@@ -48,9 +48,22 @@
 .card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-medium);
-  background: var(--color-white);
+  background: var(--color-surface);
   box-shadow: 0 2px 10px rgb(46 45 126 / 3%);
 }
+
+.gradient-card { border-color: rgb(107 116 214 / 18%); background-color: var(--color-surface); background-position: 0 0; background-size: 100% 100%; }
+.gradient-card--soft-indigo { background-image: var(--gradient-card-soft-indigo); }
+.gradient-card--soft-blue { background-image: var(--gradient-card-soft-blue); }
+.gradient-card--soft-violet { background-image: var(--gradient-card-soft-violet); }
+.gradient-card--accent { border-color: rgb(59 59 201 / 40%); background-image: var(--gradient-card-accent); }
+.gradient-card--deep { border-color: #2E2D7E; background-image: var(--gradient-card-deep); color: var(--color-white); }
+.gradient-card--deep :is(h2, h3, p, strong, small, li, span) { color: inherit; }
+.public-cta.gradient-card--deep,
+.features-cta.gradient-card--deep,
+.workflow-cta.gradient-card--deep,
+.pricing-cta.gradient-card--deep,
+.landing-final-cta.gradient-card--deep { background-color: var(--color-brand-dark); background-image: var(--gradient-card-deep); }
 
 .badge {
   display: inline-flex;

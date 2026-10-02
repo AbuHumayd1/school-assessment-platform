@@ -1,7 +1,5 @@
 .public-layout { display: flex; min-width: 0; min-height: 100vh; flex-direction: column; background: var(--color-page-bg); }
-.public-layout:has(.about-contact-page),
-.public-layout:has(.public-how) { background: #fbf9f8; }
-.public-header { position: sticky; z-index: 50; top: 0; display: flex; min-height: 4.25rem; align-items: center; justify-content: space-between; gap: var(--space-6); padding: 0 clamp(var(--space-5), 4vw, var(--space-10)); border-bottom: 1px solid var(--color-border); background: rgb(255 255 255 / 96%); backdrop-filter: blur(10px); }
+.public-header { position: sticky; z-index: 50; top: 0; display: flex; min-height: 4.25rem; align-items: center; justify-content: space-between; gap: var(--space-6); padding: 0 clamp(var(--space-5), 4vw, var(--space-10)); border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
 .wordmark { display: inline-flex; min-width: max-content; align-items: center; gap: var(--space-3); color: var(--color-brand-dark); text-decoration: none; }
 .wordmark__mark { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border-radius: 0.75rem; background: var(--color-brand-light); color: var(--color-brand-dark); font-size: var(--font-small); font-weight: 800; letter-spacing: -0.04em; }
 .wordmark__name { display: grid; font-size: 0.875rem; font-weight: 700; line-height: 1.15; }
@@ -15,6 +13,21 @@
 .public-nav a:hover,
 .public-nav a.active { color: var(--color-primary); }
 .public-header__actions { display: flex; align-items: center; gap: var(--space-4); }
+.public-language-switcher { display: inline-flex; align-items: center; gap: .35rem; color: var(--color-muted); font-size: .78rem; white-space: nowrap; }
+.public-language-switcher button { min-height: 2rem; padding: .25rem .4rem; border: 0; border-radius: var(--radius-small); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.public-language-switcher button[aria-pressed="true"] { background: var(--color-brand-light); color: var(--color-brand-dark); font-weight: 700; }
+.public-mobile-drawer > .public-language-switcher { display: flex; margin: var(--space-4); color: white; }
+.public-mobile-drawer > .public-language-switcher button[aria-pressed="true"] { background: rgb(255 255 255 / 16%); color: white; }
+.public-standalone-locale { position: absolute; z-index: 4; inset-block-start: 1rem; inset-inline-end: 1rem; }
+.public-locale[dir="rtl"] { text-align: right; }
+.public-locale[lang="ar"] { font-family: Inter, "Noto Sans Arabic", "Noto Naskh Arabic", Tahoma, Arial, sans-serif; }
+.public-locale[dir="rtl"] .icon--arrow { transform: scaleX(-1); }
+.public-locale[dir="rtl"] .form-control,
+.public-locale[dir="rtl"] input,
+.public-locale[dir="rtl"] textarea { text-align: right; }
+.public-locale[dir="rtl"] .product-preview,
+.public-locale[dir="rtl"] .feature-preview,
+.public-locale[dir="rtl"] .workflow-preview { text-align: right; }
 .public-signin { color: var(--color-brand-dark); font-size: var(--font-small); font-weight: 600; text-decoration: none; }
 .public-signin:hover { color: var(--color-primary); }
 .public-menu-toggle { display: none; color: var(--color-brand-dark); }
@@ -24,7 +37,7 @@
 .public-main:has(.about-contact-page),
 .public-main:has(.public-how) { width: 100%; max-width: none; padding: 0; }
 .public-layout--standalone .public-main { width: 100%; max-width: none; align-self: stretch; padding: 0; }
-.public-footer { padding: 3.5rem clamp(var(--space-5), 5vw, var(--space-12)) 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-white); }
+.public-footer { padding: 3.5rem clamp(var(--space-5), 5vw, var(--space-12)) 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); }
 .public-footer__content { display: grid; width: min(100%, 84rem); grid-template-columns: minmax(15rem, 1.8fr) repeat(3, minmax(8rem, 1fr)); gap: clamp(2rem, 5vw, 5rem); margin: 0 auto; padding-bottom: 3rem; }
 .public-footer__brand { display: grid; align-content: start; justify-items: start; gap: var(--space-4); }
 .public-footer__brand p,
@@ -82,6 +95,14 @@
 .account-avatar { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; background: var(--color-brand-light); color: var(--color-primary); }
 .account-button__label { font-size: var(--font-small); font-weight: 600; }
 .account-button > svg:last-child { color: var(--color-muted); }
+.language-mode-control { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--color-muted); font-size: 0.75rem; white-space: nowrap; }
+.language-mode-control select { max-width: 10rem; min-height: 2.25rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-white); color: var(--color-text); font: inherit; }
+.staff-mobile-drawer > .language-mode-control,
+.student-mobile-drawer > .language-mode-control { display: flex; margin: var(--space-4); }
+.staff-mobile-header > .language-mode-control { color: rgb(255 255 255 / 80%); }
+.staff-mobile-header > .language-mode-control select { max-width: 8rem; }
+.staff-mobile-header > .language-mode-control select { background: var(--color-white); color: var(--color-text); }
+.student-topbar__actions > .language-mode-control { margin-inline-end: 0.25rem; }
 .staff-content,
 .student-content { width: min(100%, 94rem); margin: 0 auto; padding: clamp(var(--space-6), 4vw, var(--space-10)); }
 .staff-mobile-header,
@@ -95,7 +116,7 @@
 .student-sidebar__footer svg { color: #C8CAFF; }
 .student-topbar__welcome { display: flex; align-items: center; gap: var(--space-3); color: var(--color-brand-dark); font-weight: 600; }
 .student-topbar__icon { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border-radius: var(--radius-small); background: var(--color-brand-light); color: var(--color-primary); }
-.student-topbar { position: sticky; z-index: 50; top: 0; min-height: 4rem; gap: clamp(var(--space-3), 2.5vw, var(--space-8)); padding-inline: clamp(var(--space-4), 4vw, var(--space-10)); background: rgb(255 255 255 / 96%); backdrop-filter: blur(12px); }
+.student-topbar { position: sticky; z-index: 50; top: 0; min-height: 4rem; gap: clamp(var(--space-3), 2.5vw, var(--space-8)); padding-inline: clamp(var(--space-4), 4vw, var(--space-10)); background: var(--color-surface); }
 .student-topbar > .student-nav { display: flex; align-items: center; justify-content: center; gap: var(--space-1); }
 .student-topbar .student-nav__link { min-height: 2.5rem; padding-inline: var(--space-4); color: var(--color-muted); white-space: nowrap; }
 .student-topbar .student-nav__link:hover { background: var(--color-brand-light); color: var(--color-brand-dark); }

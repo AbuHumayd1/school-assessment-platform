@@ -25,7 +25,7 @@ const paths = {
 
 export default function Icon({ name, size = 20, className = '' }) {
   return (
-    <svg aria-hidden="true" className={className} width={size} height={size} viewBox="0 0 24 24"
+    <svg aria-hidden="true" className={`icon--${name} ${className}`.trim()} width={size} height={size} viewBox="0 0 24 24"
       fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" focusable="false">
       {paths[name] || paths.file}
     </svg>

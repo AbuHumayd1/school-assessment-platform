@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import Badge from '../../components/common/Badge.jsx'
 import Button from '../../components/common/Button.jsx'
 import Card from '../../components/common/Card.jsx'
@@ -9,6 +9,7 @@ import SearchField from '../../components/common/SearchField.jsx'
 import { ExamCard, ExamStatusBadge, StudentEmptyState, StudentPageHeader } from '../../components/student/StudentComponents.jsx'
 import useCandidatePortalData from '../../hooks/useCandidatePortalData.js'
 import { formatCandidateDate } from '../../utils/candidatePortal.js'
+import { startAttempt } from '../../services/attempts.js'
 
 const tabs = [['available', 'Available'], ['upcoming', 'Upcoming'], ['completed', 'Completed']]
 const belongsToTab = (exam, tab) => tab === 'available' ? ['available', 'in_progress'].includes(exam.status) : exam.status === tab
@@ -22,6 +23,7 @@ function PortalState({ portal }) {
 }
 
 export default function StudentExamsPage() {
+  const navigate = useNavigate()
   const portal = useCandidatePortalData()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = tabs.some(([key]) => key === searchParams.get('tab')) ? searchParams.get('tab') : 'available'
@@ -30,6 +32,7 @@ export default function StudentExamsPage() {
   const [search, setSearch] = useState('')
   const [subject, setSubject] = useState('all')
   const [launchNotice, setLaunchNotice] = useState('')
+  const [launching, setLaunching] = useState(false)
   const exams = portal.exams || []
   const subjects = [...new Set(exams.map(exam => exam.subject.name))]
 
@@ -59,6 +62,19 @@ export default function StudentExamsPage() {
     setSearchParams({ ...(activeTab === 'available' ? {} : { tab: activeTab }), exam: String(exam.id) })
   }
 
+  async function launchExam(exam) {
+    setLaunchNotice('')
+    setLaunching(true)
+    try {
+      const attempt = await startAttempt(exam.id)
+      navigate(`/student/exam/${attempt.id}`)
+    } catch (error) {
+      setLaunchNotice(error.message || 'The examination could not be started. Please try again.')
+    } finally {
+      setLaunching(false)
+    }
+  }
+
   function renderExamDetails(exam) {
     const state = exam.status
     const startable = exam.can_start || exam.can_resume
@@ -67,7 +83,7 @@ export default function StudentExamsPage() {
       <div className="exam-before-start__heading"><div><h2 id="before-start-title">{exam.title}</h2><p>{exam.assessment_type_label}</p></div></div>
       <div className="exam-detail-facts exam-detail-facts--wide"><span><small>Duration</small><strong>{exam.duration_minutes} minutes</strong></span><span><small>Assessment type</small><strong>{exam.assessment_type_label}</strong></span><span><small>Total marks</small><strong>{exam.total_marks}</strong></span><span><small>Attempts</small><strong>{exam.attempts_used} used · {exam.attempts_remaining} remaining of {exam.attempt_limit}</strong></span><span><small>Start time</small><strong>{formatCandidateDate(exam.start_at, portal.institution?.timezone)}</strong></span><span><small>End time</small><strong>{formatCandidateDate(exam.end_at, portal.institution?.timezone)}</strong></span></div>
       {launchNotice && <p className="form-hint" role="status">{launchNotice}</p>}
-      <div className="exam-before-start__footer"><p><Icon name="file" size={16} />Starting an exam will be connected in the next integration step.</p>{startable && <Button onClick={() => setLaunchNotice('Exam launch will be connected in the next integration step. No attempt was started.')}>{exam.can_resume ? 'Resume Exam' : 'Start Exam'}<Icon name="arrow" size={17} /></Button>}</div>
+      <div className="exam-before-start__footer"><p><Icon name="file" size={16} />{exam.can_resume ? 'Your in-progress attempt is ready to resume.' : 'Your timer starts when you open the examination.'}</p>{startable && <Button loading={launching} onClick={() => launchExam(exam)}>{exam.can_resume ? 'Resume Exam' : 'Start Exam'}<Icon name="arrow" size={17} /></Button>}</div>
     </Card>
   }
 

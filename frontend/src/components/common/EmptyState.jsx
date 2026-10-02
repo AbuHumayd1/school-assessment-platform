@@ -1,4 +1,4 @@
-export default function EmptyState({ title, description, action, icon = '—' }) {
+export default function EmptyState({ title, description, action, icon = '•' }) {
   return (
     <section className="empty-state" aria-labelledby="empty-state-title">
       <span className="empty-state__icon" aria-hidden="true">{icon}</span>
