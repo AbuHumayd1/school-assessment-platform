@@ -3,6 +3,8 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import ErrorBoundary from './components/common/ErrorBoundary.jsx'
 import RouteScrollRestoration from './components/common/RouteScrollRestoration.jsx'
 import RequireAuth from './components/common/RequireAuth.jsx'
+import RequireWorkspace from './components/common/RequireWorkspace.jsx'
+import { useWorkspace } from './context/WorkspaceContext.jsx'
 import PublicLayout from './layouts/PublicLayout.jsx'
 import StaffLayout from './layouts/StaffLayout.jsx'
 import StudentLayout from './layouts/StudentLayout.jsx'
@@ -22,6 +24,7 @@ import StudentExamsPage from './pages/student/StudentExamsPage.jsx'
 import StudentExamPage from './pages/student/StudentExamPage.jsx'
 import StudentResultsPage from './pages/student/StudentResultsPage.jsx'
 import { getRememberedAttemptPath, recordAttemptIntegrity, rememberActiveAttempt } from './services/attempts.js'
+import { canAccessStaffCapability } from './utils/staffCapabilities.js'
 
 function ActiveAttemptNavigationGuard() {
   const { pathname } = useLocation()
@@ -71,17 +74,29 @@ function ActiveAttemptNavigationGuard() {
 }
 
 const staffPages = [
-  ['students', 'Students'],
-  ['staff', 'Teachers & Staff'],
-  ['classes', 'Classes / Cohorts'],
-  ['subjects', 'Subjects'],
-  ['questions', 'Questions'],
-  ['exams', 'Exams'],
-  ['submissions', 'Submissions'],
-  ['results', 'Results'],
-  ['reports', 'Reports'],
-  ['settings', 'Settings'],
+  ['students', 'Students', 'candidates'],
+  ['staff', 'Teachers & Staff', 'memberships'],
+  ['classes', 'Classes / Cohorts', 'groups'],
+  ['subjects', 'Subjects', 'subjects'],
+  ['questions', 'Questions', 'questions'],
+  ['exams', 'Exams', 'assessments'],
+  ['submissions', 'Submissions', 'submissions'],
+  ['results', 'Results', 'results'],
+  ['reports', 'Reports', 'reports'],
+  ['settings', 'Settings', 'institution_settings'],
 ]
+
+function StaffIndex() {
+  const { currentRole } = useWorkspace()
+  if (!canAccessStaffCapability(currentRole, 'dashboard')) return <Navigate to="/app/questions" replace />
+  return <PlaceholderPage title="Dashboard" />
+}
+
+function StaffPage({ title, capability }) {
+  const { currentRole } = useWorkspace()
+  if (!canAccessStaffCapability(currentRole, capability)) return <Navigate to="/app/questions" replace />
+  return <PlaceholderPage title={title} />
+}
 
 export default function App() {
   return (
@@ -100,10 +115,10 @@ export default function App() {
           <Route path="setup" element={<SetupPage />} />
         </Route>
 
-        <Route path="app" element={<StaffLayout />}>
-          <Route index element={<PlaceholderPage title="Dashboard" />} />
-          {staffPages.map(([path, title]) => (
-            <Route key={path} path={path} element={<PlaceholderPage title={title} />} />
+        <Route path="app" element={<RequireWorkspace><StaffLayout /></RequireWorkspace>}>
+          <Route index element={<StaffIndex />} />
+          {staffPages.map(([path, title, capability]) => (
+            <Route key={path} path={path} element={<StaffPage title={title} capability={capability} />} />
           ))}
           <Route path="*" element={<PlaceholderPage title="Page" />} />
         </Route>

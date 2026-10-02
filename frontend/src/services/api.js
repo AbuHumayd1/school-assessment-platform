@@ -1,6 +1,11 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 let csrfToken = null
+let institutionContextId = null
+
+export function setInstitutionContext(institutionId) {
+  institutionContextId = institutionId == null ? null : String(institutionId)
+}
 
 export class ApiError extends Error {
   constructor(message, { status, data } = {}) {
@@ -29,7 +34,12 @@ async function readResponse(response) {
 async function send(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const headers = new Headers(options.headers || {})
+  const { institutionScoped = false, ...fetchOptions } = options
   headers.set('Accept', 'application/json')
+  headers.delete('X-Institution-ID')
+  if (institutionScoped && institutionContextId) {
+    headers.set('X-Institution-ID', institutionContextId)
+  }
   let body = options.body
   if (body !== undefined && body !== null && typeof body !== 'string' && !(body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
@@ -37,7 +47,7 @@ async function send(path, options = {}) {
   }
 
   const response = await fetch(`${API_BASE_URL}/${path.replace(/^\/+/, '')}`, {
-    ...options,
+    ...fetchOptions,
     method,
     body,
     headers,
@@ -45,6 +55,9 @@ async function send(path, options = {}) {
   })
   const data = await readResponse(response)
   if (data && typeof data.csrfToken === 'string') csrfToken = data.csrfToken
+  if (institutionScoped && [403, 404].includes(response.status)) {
+    window.dispatchEvent(new CustomEvent('workspace-context-invalidated'))
+  }
   if (!response.ok) {
     const message = typeof data?.detail === 'string' ? data.detail : `Request failed (${response.status}).`
     throw new ApiError(message, { status: response.status, data })
@@ -70,4 +83,8 @@ export async function apiFetch(path, options = {}) {
     requestOptions.headers = { ...options.headers, 'X-CSRFToken': token }
   }
   return send(path, requestOptions)
+}
+
+export function staffApiFetch(path, options = {}) {
+  return apiFetch(path, { ...options, institutionScoped: true })
 }

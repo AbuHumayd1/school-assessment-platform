@@ -11,6 +11,8 @@ from rest_framework.views import APIView
 from rest_framework.authentication import SessionAuthentication
 
 from candidates.models import Candidate
+from institutions.models import Institution
+from tenants.models import InstitutionMembership
 
 
 class SafeUserSerializer(serializers.Serializer):
@@ -75,6 +77,66 @@ class CurrentUserView(APIView):
         if not request.user.is_authenticated:
             return Response({"authenticated": False}, status=HTTP_401_UNAUTHORIZED)
         return Response(SafeUserSerializer(request.user).data)
+
+
+class WorkspaceContextView(APIView):
+    """Expose only the authenticated user's active workspace relationships."""
+    authentication_classes = (SessionAuthentication,)
+    permission_classes = (IsAuthenticated,)
+
+    workspace_roles = (
+        InstitutionMembership.Role.INSTITUTION_ADMIN,
+        InstitutionMembership.Role.TEACHER,
+        InstitutionMembership.Role.EXAMINER,
+    )
+
+    def get(self, request):
+        user = request.user
+        is_platform_admin = user.is_superuser or InstitutionMembership.objects.filter(
+            user=user,
+            is_active=True,
+            institution__is_active=True,
+            role=InstitutionMembership.Role.PLATFORM_ADMIN,
+        ).exists()
+
+        if is_platform_admin:
+            # Match the existing platform-admin authorization semantics: platform
+            # administrators can select any active institution.
+            workspaces = [
+                {"institution": institution, "role": InstitutionMembership.Role.PLATFORM_ADMIN}
+                for institution in Institution.objects.filter(is_active=True).order_by("name", "pk")
+            ]
+        else:
+            workspaces = [
+                {"institution": membership.institution, "role": membership.role}
+                for membership in InstitutionMembership.objects.filter(
+                    user=user,
+                    is_active=True,
+                    institution__is_active=True,
+                    role__in=self.workspace_roles,
+                ).select_related("institution").order_by("institution__name", "institution_id")
+            ]
+
+        return Response({
+            "user": {
+                "id": user.pk,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            },
+            "workspaces": [
+                {
+                    "institution": {
+                        "id": item["institution"].pk,
+                        "name": item["institution"].name,
+                        "slug": item["institution"].slug,
+                        "institution_type": item["institution"].institution_type,
+                    },
+                    "role": item["role"],
+                }
+                for item in workspaces
+            ],
+        })
 
 
 class LogoutView(APIView):

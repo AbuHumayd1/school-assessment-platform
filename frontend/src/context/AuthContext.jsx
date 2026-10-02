@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../services/api.js'
+import { apiFetch, setInstitutionContext } from '../services/api.js'
 
 const AuthContext = createContext(null)
 
@@ -14,6 +14,7 @@ export function AuthProvider({ children }) {
       setUser(currentUser?.authenticated === false ? null : currentUser)
       return currentUser
     } catch (error) {
+      setInstitutionContext(null)
       if (error.status === 401) setUser(null)
       else setUser(null)
       return null
@@ -27,13 +28,18 @@ export function AuthProvider({ children }) {
   const signIn = useCallback(async (credentials) => {
     const data = await apiFetch('auth/login/', { method: 'POST', body: credentials })
     if (!data?.user || typeof data.user.id !== 'number') throw new Error('The server returned an unexpected sign-in response.')
+    setInstitutionContext(null)
     setUser(data.user)
     return data.user
   }, [])
 
   const signOut = useCallback(async () => {
-    await apiFetch('auth/logout/', { method: 'POST' })
-    setUser(null)
+    try {
+      await apiFetch('auth/logout/', { method: 'POST' })
+    } finally {
+      setInstitutionContext(null)
+      setUser(null)
+    }
   }, [])
 
   const value = useMemo(() => ({ user, loading, refreshUser, signIn, signOut }), [user, loading, refreshUser, signIn, signOut])
