@@ -9,8 +9,9 @@ from audit.models import AuditEvent
 from audit.services import record_event
 
 from .models import Attempt
+from .access import ExamAccessContext
 from .services import (
-    CompletionReason, expire_attempt, finalize_attempt, lock_candidate_attempt,
+    CompletionReason, expire_attempt, finalize_attempt, lock_candidate_attempt, lock_access_attempt,
 )
 
 
@@ -60,7 +61,11 @@ def integrity_state(attempt):
 
 @transaction.atomic
 def record_integrity_signal(user, attempt_id, signal):
-    attempt = lock_candidate_attempt(user, attempt_id)
+    if isinstance(user, ExamAccessContext):
+        attempt = lock_access_attempt(user, attempt_id)
+        user = user.user
+    else:
+        attempt = lock_candidate_attempt(user, attempt_id)
     if expire_attempt(attempt, actor=user):
         state = integrity_state(attempt)
         return {**state, "deduplicated": False, "event_rejected": True}

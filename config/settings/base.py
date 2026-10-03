@@ -49,8 +49,15 @@ REST_FRAMEWORK = {
     # Anonymous API requests are throttled by client IP; sensitive mutations use per-user scopes.
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.AnonRateThrottle"],
     "DEFAULT_THROTTLE_RATES": {"anon": "120/hour", "auth_login": "10/minute", "auth_register": "10/minute", "workspace_create": "10/hour", "attempt_start": "300/hour",
-                               "candidate_provision": "30/hour", "attempt_submit": "60/minute", "attempt_integrity": "120/hour",
+                               "candidate_provision": "30/hour", "quick_exam_admin": "60/hour", "attempt_submit": "60/minute", "attempt_integrity": "120/hour",
                                "result_mark": "60/minute", "result_publish": "60/minute", "result_withhold": "60/minute"},
 }
 EXAM_INTEGRITY_INTERRUPTION_LIMIT = max(1, int(os.getenv("EXAM_INTEGRITY_INTERRUPTION_LIMIT", "3")))
 EXAM_INTEGRITY_DEDUPE_SECONDS = max(0, int(os.getenv("EXAM_INTEGRITY_DEDUPE_SECONDS", "5")))
+
+QUICK_EXAM_SESSION_BASE_SECONDS = max(1, int(os.getenv("QUICK_EXAM_SESSION_BASE_SECONDS", "28800")))
+QUICK_EXAM_RECOVERY_BUFFER_SECONDS = max(1, int(os.getenv("QUICK_EXAM_RECOVERY_BUFFER_SECONDS", "7200")))
+QUICK_EXAM_COOKIE_SECURE = False
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].update({
+    "quick_verify_ip": "10/minute", "quick_verify_identifier": "5/minute", "quick_exam_requests": "600/minute",
+})

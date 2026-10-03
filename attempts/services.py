@@ -13,6 +13,7 @@ from audit.services import record_event
 from candidates.models import Candidate
 from questions.models import Question
 from .models import Attempt, AttemptQuestion, AttemptQuestionOption
+from .access import ExamAccessContext, validate_quick_context
 from .tenancy import (
     active_group_ids_for_candidate, assessment_window_state, candidates_for_user,
 )
@@ -49,7 +50,7 @@ def resolve_candidate(user, institution_id=None):
 
 def _validate_assessment_for_candidate(
     assessment, candidate, now, *, check_window=True, question_rows=None,
-    eligible_group_ids=None,
+    eligible_group_ids=None, access_mode="portal",
 ):
     if assessment.institution_id != candidate.institution_id or not assessment.institution.is_active:
         raise NotFound()
@@ -63,14 +64,18 @@ def _validate_assessment_for_candidate(
             raise PermissionDenied("This assessment is not available yet.")
         if window == "ended":
             raise PermissionDenied("The assessment availability window has ended.")
-    if assessment.candidate_access != Assessment.CandidateAccess.ASSIGNED_GROUP:
-        raise PermissionDenied("This assessment access mode is not configured for candidate delivery.")
-    if not assessment.group_id or not assessment.group.is_active:
-        raise ValidationError({"group": "An active assigned group is required for candidate access."})
-    if eligible_group_ids is None:
-        eligible_group_ids = active_group_ids_for_candidate(candidate)
-    if assessment.group_id not in eligible_group_ids:
-        raise PermissionDenied("The candidate is not an active member of the assigned group.")
+    if access_mode == "quick":
+        if assessment.candidate_access != Assessment.CandidateAccess.ACCESS_CODE:
+            raise PermissionDenied("This assessment is not configured for Quick Exam delivery.")
+    else:
+        if assessment.candidate_access != Assessment.CandidateAccess.ASSIGNED_GROUP:
+            raise PermissionDenied("This assessment access mode is not configured for candidate delivery.")
+        if not assessment.group_id or not assessment.group.is_active:
+            raise ValidationError({"group": "An active assigned group is required for candidate access."})
+        if eligible_group_ids is None:
+            eligible_group_ids = active_group_ids_for_candidate(candidate)
+        if assessment.group_id not in eligible_group_ids:
+            raise PermissionDenied("The candidate is not an active member of the assigned group.")
 
     rows = question_rows
     if rows is None:
@@ -100,10 +105,24 @@ def _validate_assessment_for_candidate(
 
 
 def start_attempt(user, assessment_id, *, institution_id=None, now=None):
-    now = now or timezone.now()
     candidate = resolve_candidate(user, institution_id)
     try:
+        assessment = Assessment.objects.get(pk=assessment_id)
+    except Assessment.DoesNotExist:
+        raise NotFound()
+    context = ExamAccessContext("portal", candidate, assessment, candidate.institution, user=user)
+    return start_access_attempt(context, now=now)
+
+
+def start_access_attempt(context, *, now=None):
+    now = now or timezone.now()
+    candidate, assessment_id, user = context.candidate, context.assessment.pk, context.user
+    try:
         with transaction.atomic():
+            if context.access_mode == "quick":
+                context = validate_quick_context(context)
+                candidate = context.candidate
+                assessment_id, user = context.assessment.pk, context.user
             candidate = Candidate.objects.select_for_update().select_related("institution").get(pk=candidate.pk)
             try:
                 assessment = Assessment.objects.select_for_update().select_related("institution", "group", "subject").get(pk=assessment_id)
@@ -113,6 +132,8 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
                 raise NotFound()
             if candidate.status != Candidate.Status.ACTIVE:
                 raise PermissionDenied("This candidate profile is not active.")
+            if context.access_mode == "portal" and assessment.candidate_access != Assessment.CandidateAccess.ASSIGNED_GROUP:
+                raise PermissionDenied("This assessment access mode is not configured for candidate delivery.")
             active = Attempt.objects.select_for_update().filter(
                 candidate=candidate, assessment=assessment, status=Attempt.Status.IN_PROGRESS,
             ).first()
@@ -123,11 +144,11 @@ def start_attempt(user, assessment_id, *, institution_id=None, now=None):
                     if not assessment.resume_allowed:
                         raise AttemptConflict("An active attempt already exists and resume is disabled.")
                     return active, False
-            rows = _validate_assessment_for_candidate(assessment, candidate, now)
+            rows = _validate_assessment_for_candidate(assessment, candidate, now, access_mode=context.access_mode)
             question_ids = [row.question_id for row in rows]
             # Lock questions while the validated content and options are copied into the attempt.
             list(Question.objects.select_for_update().filter(pk__in=question_ids).order_by("pk").values_list("pk", flat=True))
-            rows = _validate_assessment_for_candidate(assessment, candidate, now)
+            rows = _validate_assessment_for_candidate(assessment, candidate, now, access_mode=context.access_mode)
             used = Attempt.objects.filter(candidate=candidate, assessment=assessment).count()
             if used >= assessment.attempt_limit:
                 # Return normally so any expiry transition made above is committed.
@@ -234,10 +255,27 @@ def expire_attempt(attempt, now=None, *, actor=None):
 
 def lock_candidate_attempt(user, attempt_id):
     try:
-        return Attempt.objects.select_for_update().select_related("assessment", "candidate", "institution").get(
+        owned = Attempt.objects.select_related("candidate__institution", "assessment").get(
             pk=attempt_id, candidate__user=user, candidate__status=Candidate.Status.ACTIVE,
             institution__is_active=True,
         )
+    except Attempt.DoesNotExist:
+        raise NotFound()
+    context = ExamAccessContext("portal", owned.candidate, owned.assessment, owned.candidate.institution, user=user)
+    return lock_access_attempt(context, attempt_id)
+
+
+def lock_access_attempt(context, attempt_id):
+    if context.access_mode == "quick":
+        context = validate_quick_context(context)
+    filters = dict(pk=attempt_id, candidate_id=context.candidate.pk, assessment_id=context.assessment.pk,
+                   institution_id=context.institution.pk, candidate__status=Candidate.Status.ACTIVE,
+                   institution__is_active=True)
+    if context.access_mode == "portal":
+        filters["candidate__user"] = context.user
+        filters["assessment__candidate_access"] = Assessment.CandidateAccess.ASSIGNED_GROUP
+    try:
+        return Attempt.objects.select_for_update().select_related("assessment", "candidate", "institution").get(**filters)
     except Attempt.DoesNotExist:
         raise NotFound()
 

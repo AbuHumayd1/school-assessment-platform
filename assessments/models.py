@@ -126,6 +126,11 @@ class Assessment(models.Model):
         if self.pk:
             original = type(self).objects.select_for_update().filter(pk=self.pk).first()
             if original:
+                if QuickExamConfiguration.objects.filter(assessment_id=self.pk).exists():
+                    if self.candidate_access != self.CandidateAccess.ACCESS_CODE:
+                        raise ValidationError({"candidate_access": "An assessment with Quick Exam configuration must use access-code delivery."})
+                    if original.institution_id != self.institution_id:
+                        raise ValidationError({"institution": "An assessment with Quick Exam configuration cannot change institution."})
                 from attempts.models import Attempt
                 has_attempts = Attempt.objects.filter(assessment_id=self.pk).exists()
                 protected = (
@@ -278,3 +283,6 @@ class AssessmentQuestion(models.Model):
 
     def __str__(self):
         return f"{self.assessment}: question {self.question_id}"
+
+
+from .quick_models import QuickExamConfiguration, QuickExamCredential, QuickExamSession
