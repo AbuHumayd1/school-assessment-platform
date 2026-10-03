@@ -7,15 +7,25 @@ from .models import Candidate
 class CandidateSerializer(serializers.ModelSerializer):
     institution = serializers.PrimaryKeyRelatedField(read_only=True)
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.none(), required=False, allow_null=True)
+    portal_account = serializers.SerializerMethodField()
+    identity_locked = serializers.SerializerMethodField()
+
+    def get_portal_account(self, candidate):
+        return {"email": candidate.user.email, "is_active": candidate.user.is_active} if candidate.user_id else None
+
+    def get_identity_locked(self, candidate):
+        return candidate.attempts.exists()
 
     class Meta:
         model = Candidate
-        fields = ("id", "institution", "user", "candidate_id", "first_name", "last_name", "email", "phone", "date_of_birth", "status", "created_at", "updated_at")
+        fields = ("id", "institution", "user", "candidate_id", "first_name", "last_name", "email", "phone", "date_of_birth", "status", "created_at", "updated_at", "portal_account", "identity_locked")
         read_only_fields = ("id", "institution", "created_at", "updated_at")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         institution_id = getattr(self.instance, "institution_id", None)
+        if institution_id is None:
+            institution_id = getattr(self.context.get("institution"), "pk", None)
         if institution_id is None:
             institution_id = self.initial_data.get("institution") if hasattr(self, "initial_data") else None
         try:
@@ -31,6 +41,17 @@ class CandidateSerializer(serializers.ModelSerializer):
             ).distinct()
 
     def validate(self, attrs):
+        institution = self.context.get("institution") or getattr(self.instance, "institution", None)
+        candidate_id = attrs.get("candidate_id", getattr(self.instance, "candidate_id", None))
+        if institution and candidate_id:
+            duplicates = Candidate.objects.filter(institution=institution, candidate_id=candidate_id)
+            if self.instance:
+                duplicates = duplicates.exclude(pk=self.instance.pk)
+            if duplicates.exists():
+                raise serializers.ValidationError({"candidate_id": "This candidate ID is already used in this workspace."})
+        if self.instance and self.instance.attempts.exists():
+            if any(key in attrs and attrs[key] != getattr(self.instance, key) for key in ("candidate_id", "user")):
+                raise serializers.ValidationError({"candidate_id": "Candidate identity and account linkage cannot change after an attempt starts."})
         if not self.instance:
             return attrs
         request = self.context.get("request")

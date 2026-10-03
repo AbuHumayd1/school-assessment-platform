@@ -38,7 +38,11 @@ class TenantIsolationTests(APITestCase):
         for url, record in [("/api/v1/candidates/", self.candidate_b), ("/api/v1/groups/", self.group_b), ("/api/v1/subjects/", self.subject_b)]:
             detail = f"{url}{record.id}/"
             self.assertEqual(self.client.patch(detail, {"name": "Changed"}, format="json").status_code, status.HTTP_404_NOT_FOUND)
-            self.assertEqual(self.client.delete(detail).status_code, status.HTTP_404_NOT_FOUND)
+            expected_delete_status = status.HTTP_403_FORBIDDEN if url == "/api/v1/candidates/" else status.HTTP_404_NOT_FOUND
+            self.assertEqual(self.client.delete(detail).status_code, expected_delete_status)
+        InstitutionMembership.objects.filter(user=self.user, institution=self.a).update(role="institution_admin")
+        self.assertEqual(self.client.delete(f"/api/v1/candidates/{self.candidate_b.pk}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Candidate.objects.filter(pk=self.candidate_b.pk).exists())
 
     def test_client_cannot_assign_foreign_tenant(self):
         response = self.client.post("/api/v1/candidates/", {"institution": self.b.id, "candidate_id": "X", "first_name": "X", "last_name": "Y"}, format="json")

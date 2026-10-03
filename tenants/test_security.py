@@ -132,7 +132,11 @@ class PhaseFiveSecurityTests(APITestCase):
     def test_foreign_candidate_cannot_be_deleted_by_url_id(self):
         self.client.force_authenticate(self.teacher_a)
         response = self.client.delete(f"/api/v1/candidates/{self.candidate_b.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(self.admin_a)
+        response = self.client.delete(f"/api/v1/candidates/{self.candidate_b.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Candidate.objects.filter(pk=self.candidate_b.pk).exists())
 
     def test_candidate_creation_cannot_assign_foreign_institution(self):
         self.client.force_authenticate(self.teacher_a)

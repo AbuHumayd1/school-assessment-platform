@@ -1,23 +1,32 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Prefetch
+from django.db import IntegrityError, transaction
+from django.db.models import Prefetch, Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.throttling import ScopedRateThrottle
 
 from assessments.models import Assessment, AssessmentQuestion
 from attempts.models import Attempt
 from attempts.services import _validate_assessment_for_candidate
 from attempts.tenancy import active_group_ids_for_candidate, assessment_window_state
 from groups.models import Group
+from audit.models import AuditEvent
+from audit.services import record_event
 from tenants.permissions import CanManageCandidates
-from tenants.querysets import can_manage_institution, institutions_for_user
+from tenants.querysets import can_manage_institution, resolve_institution_context
+from tenants.permissions import CanManageInstitution, STAFF_ROLES
 from .models import Candidate
 from .serializers import CandidateSerializer
+from .provisioning import provision_candidate_access
 
 
 class CandidateProfileConflict(APIException):
@@ -25,6 +34,14 @@ class CandidateProfileConflict(APIException):
     default_detail = {
         "code": "ambiguous_candidate_profiles",
         "detail": "More than one candidate profile is linked to this account. Contact your institution.",
+    }
+
+
+class CandidateDeletionConflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = {
+        "code": "candidate_has_assessment_history",
+        "detail": "This candidate has assessment history and cannot be permanently deleted. Deactivate the candidate instead.",
     }
 
 
@@ -190,17 +207,110 @@ class CandidateExamListView(APIView):
         return Response({"exams": summaries})
 
 
+class CandidatePagination(PageNumberPagination):
+    page_size = 25
+
+
 class CandidateViewSet(viewsets.ModelViewSet):
     serializer_class = CandidateSerializer
     permission_classes = [CanManageCandidates]
+    pagination_class = CandidatePagination
+
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [CanManageInstitution()]
+        return super().get_permissions()
+
+    def get_institution(self):
+        if not hasattr(self, "_institution_context"):
+            # Preserve the established create-body selector while preferring the
+            # shared workspace header/query convention for all management actions.
+            body_id = self.request.data.get("institution") if self.action == "create" else None
+            if body_id and not (self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution")):
+                try:
+                    body_id = int(body_id)
+                except (ValueError, TypeError):
+                    raise ValidationError({"institution": "Select a valid institution."})
+                if not can_manage_institution(self.request.user, body_id, STAFF_ROLES):
+                    raise ValidationError({"institution": "Choose an institution you are authorized to manage."})
+                from institutions.models import Institution
+                self._institution_context = Institution.objects.get(pk=body_id, is_active=True)
+            else:
+                roles = {"institution_admin"} if self.action in {"provision_access", "destroy"} else STAFF_ROLES
+                self._institution_context = resolve_institution_context(self.request, roles)
+        return self._institution_context
+
     def get_queryset(self):
-        return Candidate.objects.filter(institution_id__in=institutions_for_user(self.request.user), institution__is_active=True)
+        candidates = Candidate.objects.filter(institution=self.get_institution()).select_related("user", "institution")
+        search = self.request.query_params.get("search", "").strip()[:200]
+        # Each word may match any name/identifier/contact field.
+        for word in search.split():
+            candidates = candidates.filter(Q(first_name__icontains=word) | Q(last_name__icontains=word) | Q(candidate_id__icontains=word) | Q(email__icontains=word))
+        candidate_status = self.request.query_params.get("status")
+        if candidate_status:
+            if candidate_status not in Candidate.Status.values:
+                raise ValidationError({"status": "Choose a valid candidate status."})
+            candidates = candidates.filter(status=candidate_status)
+        return candidates.order_by("first_name", "last_name", "pk")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["institution"] = self.get_institution()
+        supplied = self.request.data.get("institution")
+        if supplied is not None and str(supplied) != str(context["institution"].pk):
+            raise ValidationError({"institution": "Candidates cannot be assigned or moved to another workspace."})
+        return context
+
     def perform_create(self, serializer):
-        institution_id = self.request.data.get("institution")
-        if not institution_id or not can_manage_institution(self.request.user, institution_id, ["institution_admin", "teacher", "examiner"]):
-            raise ValidationError({"institution": "Choose an institution you are authorized to manage."})
-        serializer.save(institution_id=institution_id)
+        try:
+            with transaction.atomic():
+                serializer.save(institution=self.get_institution())
+        except IntegrityError:
+            raise ValidationError({"candidate_id": "This candidate ID is already used in this workspace."})
+
     def perform_update(self, serializer):
         if "institution" in self.request.data and str(self.request.data["institution"]) != str(serializer.instance.institution_id):
             raise ValidationError({"institution": "Candidates cannot be moved between institutions through this API."})
-        serializer.save()
+        try:
+            with transaction.atomic():
+                # Reload after locking so a concurrent profile PATCH cannot
+                # overwrite the user link created by portal provisioning.
+                serializer.instance = Candidate.objects.select_for_update().get(pk=serializer.instance.pk)
+                serializer.save()
+        except (DjangoValidationError, IntegrityError):
+            raise ValidationError({"candidate_id": "Candidate identity is locked or this ID is already in use."})
+
+    def perform_destroy(self, instance):
+        try:
+            with transaction.atomic():
+                # start_attempt uses the same Candidate lock before creating history.
+                candidate = Candidate.objects.select_for_update().get(pk=instance.pk)
+                if candidate.attempts.exists() or candidate.results.exists():
+                    raise CandidateDeletionConflict()
+                record_event(
+                    institution=candidate.institution, actor=self.request.user,
+                    event_type=AuditEvent.Type.MEMBERSHIP_CHANGED, resource=candidate,
+                    metadata={"action": "candidate_deleted", "candidate_id": candidate.candidate_id},
+                )
+                try:
+                    candidate.delete()
+                except (ProtectedError, IntegrityError):
+                    # Retain FK protection for history arriving through another write path.
+                    raise CandidateDeletionConflict()
+        except Candidate.DoesNotExist:
+            raise NotFound()
+
+    @action(detail=True, methods=["post"], url_path="provision-access",
+            permission_classes=[CanManageInstitution], throttle_classes=[ScopedRateThrottle])
+    def provision_access(self, request, pk=None):
+        if request.data:
+            raise ValidationError({"detail": "Portal access uses the saved candidate details; no account fields are accepted."})
+        credentials = provision_candidate_access(self.get_object(), request.user)
+        response = Response(credentials, status=status.HTTP_201_CREATED)
+        response["Cache-Control"] = "no-store, private"
+        return response
+
+    def get_throttles(self):
+        if self.action == "provision_access":
+            self.throttle_scope = "candidate_provision"
+        return super().get_throttles()

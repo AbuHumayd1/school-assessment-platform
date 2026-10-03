@@ -11,7 +11,7 @@ import { canAccessStaffCapability } from '../utils/staffCapabilities.js'
 
 const navigation = [
   ['/app', 'Dashboard', 'home', true, 'dashboard'],
-  ['/app/students', 'Students', 'users', false, 'candidates'],
+  ['/app/students', 'Candidates', 'users', false, 'candidates'],
   ['/app/staff', 'Teachers & Staff', 'staff', false, 'memberships'],
   ['/app/classes', 'Classes / Cohorts', 'layers', false, 'groups'],
   ['/app/subjects', 'Subjects', 'book', false, 'subjects'],
@@ -27,6 +27,7 @@ function StaffNavigation({ onNavigate }) {
   const { label: localizedLabel } = useLanguageMode()
   const { currentRole } = useWorkspace()
   const arabicTranslations = {
+    Candidates: 'المرشحون',
     Dashboard: '\u0644\u0648\u062d\u0629 \u0627\u0644\u062a\u062d\u0643\u0645', Students: '\u0627\u0644\u0637\u0644\u0627\u0628',
     'Teachers & Staff': '\u0627\u0644\u0645\u0639\u0644\u0645\u0648\u0646 \u0648\u0627\u0644\u0645\u0648\u0638\u0641\u0648\u0646',
     'Classes / Cohorts': '\u0627\u0644\u0641\u0635\u0648\u0644 \u0648\u0627\u0644\u0645\u062c\u0645\u0648\u0639\u0627\u062a',

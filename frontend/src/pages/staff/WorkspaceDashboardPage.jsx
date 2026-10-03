@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useWorkspace } from '../../context/WorkspaceContext.jsx'
 import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 import { staffApiFetch } from '../../services/api.js'
@@ -85,6 +86,7 @@ export default function WorkspaceDashboardPage() {
         <h2>{t('A workspace for every assessment journey', 'مساحة عمل لكل رحلة اختبار')}</h2>
         <p>{t('Begin with candidates and questions, then prepare an assessment. Results appear after attempts are marked. Additional staff and cohorts are optional.', 'ابدأ بالمترشحين والأسئلة، ثم أعد اختبارا. تظهر النتائج بعد تصحيح المحاولات. إضافة الموظفين والمجموعات اختيارية.')}</p>
         <ol>{[['Candidates', 'المترشحون'], ['Questions', 'الأسئلة'], ['Assessment', 'الاختبار'], ['Conduct', 'إجراء الاختبار'], ['Results', 'النتائج']].map(([en, ar], i) => <li key={en}><span>{number(i + 1)}</span>{t(en, ar)}</li>)}</ol>
+        <Button as={Link} to="/app/students">{t('Add candidate', 'إضافة مرشح')}</Button>
       </section>}
       {counts && <section className="wd-status-panel"><h2>{t('Assessment status', 'حالات الاختبارات')}</h2><dl>
         {Object.entries(summary.data.assessment_status_counts).map(([status, count]) => <div key={status}><dt>{t(...statuses[status])}</dt><dd>{number(count)}</dd></div>)}

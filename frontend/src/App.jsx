@@ -20,6 +20,7 @@ import {
 } from './pages/public/PublicPages.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
 import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
+import CandidatesPage from './pages/staff/CandidatesPage.jsx'
 import StudentDashboardPage from './pages/student/StudentDashboardPage.jsx'
 import StudentExamsPage from './pages/student/StudentExamsPage.jsx'
 import StudentExamPage from './pages/student/StudentExamPage.jsx'
@@ -75,7 +76,6 @@ function ActiveAttemptNavigationGuard() {
 }
 
 const staffPages = [
-  ['students', 'Students', 'candidates'],
   ['staff', 'Teachers & Staff', 'memberships'],
   ['classes', 'Classes / Cohorts', 'groups'],
   ['subjects', 'Subjects', 'subjects'],
@@ -118,6 +118,7 @@ export default function App() {
 
         <Route path="app" element={<RequireWorkspace><StaffLayout /></RequireWorkspace>}>
           <Route index element={<StaffIndex />} />
+          <Route path="students" element={<CandidatesPage />} />
           {staffPages.map(([path, title, capability]) => (
             <Route key={path} path={path} element={<StaffPage title={title} capability={capability} />} />
           ))}

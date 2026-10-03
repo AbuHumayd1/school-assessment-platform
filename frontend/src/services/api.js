@@ -39,11 +39,11 @@ async function readResponse(response) {
 async function send(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const headers = new Headers(options.headers || {})
-  const { institutionScoped = false, ...fetchOptions } = options
+  const { institutionScoped = false, institutionContextSnapshot, ...fetchOptions } = options
   headers.set('Accept', 'application/json')
   headers.delete('X-Institution-ID')
-  if (institutionScoped && institutionContextId) {
-    headers.set('X-Institution-ID', institutionContextId)
+  if (institutionScoped && institutionContextSnapshot) {
+    headers.set('X-Institution-ID', institutionContextSnapshot)
   }
   let body = options.body
   if (body !== undefined && body !== null && typeof body !== 'string' && !(body instanceof FormData)) {
@@ -83,6 +83,7 @@ async function ensureCsrfToken() {
 export async function apiFetch(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const requestOptions = { ...options, method }
+  if (options.institutionScoped) requestOptions.institutionContextSnapshot = institutionContextId
   if (unsafeMethods.has(method)) {
     const token = await ensureCsrfToken()
     requestOptions.headers = { ...options.headers, 'X-CSRFToken': token }
