@@ -1,3 +1,16 @@
+export async function loadSessionUser(request) {
+  try {
+    const user = await request('auth/me/')
+    if (!Number.isInteger(user?.id) || typeof user.email !== 'string' || !user.email) {
+      throw new Error('The server returned an unexpected account response.')
+    }
+    return user
+  } catch (error) {
+    if (error.status === 401) return null
+    throw error
+  }
+}
+
 export async function endSession(request, clearState) {
   try {
     await request('auth/logout/', { method: 'POST' })

@@ -42,7 +42,7 @@ function PublicLayoutContent() {
         <div className="public-header__actions">
           <PublicLanguageSwitcher />
           <Button as={Link} to="/signin">Sign In</Button>
-          <Button as={Link} to="/setup" variant="outline" className="public-header__cta">Setup Preview</Button>
+          <Button as={Link} to="/setup" variant="outline" className="public-header__cta">Get Started</Button>
         </div>
         <button className="icon-button public-menu-toggle" type="button" aria-label={locale === 'ar' ? translatePublicText('Open navigation') : 'Open navigation'} aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
           <Icon name="menu" />
@@ -54,7 +54,7 @@ function PublicLayoutContent() {
         <PublicLanguageSwitcher />
         <div className="public-mobile-drawer__actions">
           <Button as={Link} to="/signin" onClick={closeMenu}>Sign In</Button>
-          <Button as={Link} to="/setup" variant="outline" onClick={closeMenu}>Setup Preview</Button>
+          <Button as={Link} to="/setup" variant="outline" onClick={closeMenu}>Get Started</Button>
         </div>
       </Drawer>}
 
@@ -75,7 +75,7 @@ function PublicLayoutContent() {
           <nav className="public-footer__column" aria-label="Platform links">
             <h2>Platform</h2>
             <Link to="/pricing">Pricing</Link>
-            <Link to="/setup">Setup Preview</Link>
+            <Link to="/setup">Get Started</Link>
           </nav>
           <nav className="public-footer__column" aria-label="Organisation links">
             <h2>Organisation</h2>

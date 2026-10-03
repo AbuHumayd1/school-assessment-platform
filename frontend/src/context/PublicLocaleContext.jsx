@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import React from 'react'
+import { onboardingAr } from './onboardingTranslations.js'
 
 const PublicLocaleContext = createContext(null)
 const KEY = 'school-assessment.public-locale'
@@ -253,7 +254,7 @@ export function usePublicLocale() {
 
 export function translatePublicText(value) {
   if (typeof value !== 'string' || !value.trim()) return value
-  const translated = ar[value.trim()] || roadmapAr[value.trim()]
+  const translated = onboardingAr[value.trim()] || ar[value.trim()] || roadmapAr[value.trim()]
   return translated ? value.replace(value.trim(), translated) : value
 }
 

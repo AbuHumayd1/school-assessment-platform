@@ -2,6 +2,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -13,6 +14,7 @@ from rest_framework.authentication import SessionAuthentication
 from candidates.models import Candidate
 from institutions.models import Institution
 from tenants.models import InstitutionMembership
+from .registration import RegistrationSerializer
 
 
 class SafeUserSerializer(serializers.Serializer):
@@ -67,6 +69,27 @@ class LoginView(APIView):
             {"user": SafeUserSerializer(user).data, "csrfToken": get_token(request)},
             status=HTTP_200_OK,
         )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class RegisterView(APIView):
+    authentication_classes = (SessionAuthentication,)
+    permission_classes = (AllowAny,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "auth_register"
+
+    def post(self, request):
+        if request.user.is_authenticated:
+            return Response({"detail": "Sign out before creating another account."}, status=400)
+        serializer = RegistrationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                user = serializer.save()
+        except IntegrityError:
+            return Response({"email": ["An account with this email already exists."]}, status=400)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return Response({"user": SafeUserSerializer(user).data, "csrfToken": get_token(request)}, status=201)
 
 
 class CurrentUserView(APIView):

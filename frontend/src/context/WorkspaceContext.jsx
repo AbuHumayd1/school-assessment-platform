@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { apiFetch, setInstitutionContext } from '../services/api.js'
+import { createdWorkspaceContext } from '../services/onboarding.js'
 
 const WorkspaceContext = createContext(null)
 const STORAGE_PREFIX = 'school-assessment.active-workspace.'
@@ -34,6 +35,9 @@ export function WorkspaceProvider({ children }) {
   const [error, setError] = useState(null)
   const [retryKey, setRetryKey] = useState(0)
   const previousUserId = useRef(null)
+  const requestVersion = useRef(0)
+  const activeUserId = useRef(user?.id)
+  activeUserId.current = user?.id
   const retry = useCallback(() => setRetryKey(value => value + 1), [])
 
   useEffect(() => {
@@ -44,6 +48,7 @@ export function WorkspaceProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false
+    const version = ++requestVersion.current
     const userId = user?.id
 
     setInstitutionContext(null)
@@ -67,7 +72,7 @@ export function WorkspaceProvider({ children }) {
         const available = Array.isArray(response?.workspaces) ? response.workspaces.filter(
           item => Number.isInteger(item?.institution?.id) && typeof item?.institution?.name === 'string' && typeof item?.role === 'string',
         ) : []
-        if (cancelled) return
+        if (cancelled || version !== requestVersion.current) return
 
         setWorkspaces(available)
         const storedId = readStoredWorkspace(userId)
@@ -83,9 +88,9 @@ export function WorkspaceProvider({ children }) {
         setInstitutionContext(selected?.institution.id ?? null)
         if (available.length === 1) writeStoredWorkspace(userId, available[0].institution.id)
       } catch (requestError) {
-        if (!cancelled) setError(requestError)
+        if (!cancelled && version === requestVersion.current) setError(requestError)
       } finally {
-        if (!cancelled) {
+        if (!cancelled && version === requestVersion.current) {
           setResolvedUserId(userId)
           setLoading(false)
         }
@@ -95,6 +100,30 @@ export function WorkspaceProvider({ children }) {
     loadWorkspaces()
     return () => { cancelled = true }
   }, [user?.id, authLoading, retryKey])
+
+  const refreshAndSelect = useCallback(async (institutionId) => {
+    const userId = user?.id
+    if (!userId) throw new Error('Sign in to continue.')
+    const version = ++requestVersion.current
+    setLoading(true)
+    setError(null)
+    setCurrentWorkspace(null)
+    setInstitutionContext(null)
+    try {
+      const { workspaces: available, selected } = await createdWorkspaceContext(apiFetch, userId, institutionId)
+      if (version !== requestVersion.current || activeUserId.current !== userId) throw new Error('Account access changed. Try again.')
+      setWorkspaces(available)
+      setCurrentWorkspace(selected)
+      setInstitutionContext(selected.institution.id)
+      writeStoredWorkspace(userId, selected.institution.id)
+      setResolvedUserId(userId)
+    } catch (requestError) {
+      if (version === requestVersion.current && activeUserId.current === userId) setError(requestError)
+      throw requestError
+    } finally {
+      if (version === requestVersion.current && activeUserId.current === userId) setLoading(false)
+    }
+  }, [user?.id])
 
   const selectWorkspace = useCallback((institutionId) => {
     const next = workspaces.find(item => String(item.institution.id) === String(institutionId))
@@ -122,7 +151,8 @@ export function WorkspaceProvider({ children }) {
     selectWorkspace,
     clearSelection,
     retry,
-  }), [workspaces, currentWorkspace, contextLoading, error, selectWorkspace, clearSelection, retry])
+    refreshAndSelect,
+  }), [workspaces, currentWorkspace, contextLoading, error, selectWorkspace, clearSelection, retry, refreshAndSelect])
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
 }

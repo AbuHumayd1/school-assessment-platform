@@ -5,6 +5,7 @@ import { useWorkspace } from '../../context/WorkspaceContext.jsx'
 import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 import { apiFetch } from '../../services/api.js'
 import { candidateAccess } from '../../services/session.js'
+import { onboardingDestination } from '../../services/onboarding.js'
 import { signInDestination } from '../../utils/signInDestination.js'
 import Button from './Button.jsx'
 import LoadingState from './LoadingState.jsx'
@@ -53,7 +54,7 @@ export default function AuthenticatedAccess() {
     </> : <>
       <h1>{t('No application access yet', 'لا تتوفر صلاحية دخول إلى التطبيق حاليا')}</h1>
       <p>{t('Your account is signed in, but no active workspace or candidate access is available. Contact your organizer if you expected access.', 'تم تسجيل دخولك، لكن لا تتوفر صلاحية نشطة لمساحة عمل أو بوابة الطلاب. تواصل مع الجهة المنظمة إذا كنت تتوقع صلاحية دخول.')}</p>
-      <div className="account-access-actions"><Button onClick={retry} variant="outline">{t('Check access again', 'التحقق من الصلاحيات مجددا')}</Button><Button as={Link} to="/" variant="outline">{t('Return to website', 'العودة إلى الموقع')}</Button></div>
+      <div className="account-access-actions"><Button as={Link} to={onboardingDestination}>{t('Set up workspace', 'إعداد مساحة عمل')}</Button><Button onClick={retry} variant="outline">{t('Check access again', 'التحقق من الصلاحيات مجددا')}</Button><Button as={Link} to="/" variant="outline">{t('Return to website', 'العودة إلى الموقع')}</Button></div>
     </>}
     {!loading && !destination && <SignOutButton />}
   </section>

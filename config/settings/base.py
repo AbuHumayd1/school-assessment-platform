@@ -48,7 +48,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     # Anonymous API requests are throttled by client IP; sensitive mutations use per-user scopes.
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.AnonRateThrottle"],
-    "DEFAULT_THROTTLE_RATES": {"anon": "120/hour", "auth_login": "10/minute", "attempt_start": "300/hour",
+    "DEFAULT_THROTTLE_RATES": {"anon": "120/hour", "auth_login": "10/minute", "auth_register": "10/minute", "workspace_create": "10/hour", "attempt_start": "300/hour",
                                "attempt_submit": "60/minute", "attempt_integrity": "120/hour",
                                "result_mark": "60/minute", "result_publish": "60/minute", "result_withhold": "60/minute"},
 }

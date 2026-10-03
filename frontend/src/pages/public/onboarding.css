@@ -1,0 +1,35 @@
+.onboarding { min-width: 0; }
+.onboarding .setup-aside__top { flex-wrap: wrap; gap: 1rem; }
+.onboarding .setup-aside { padding-block-start: 4rem; }
+.onboarding .wordmark { color: inherit; min-width: 0; }
+.onboarding .setup-content { min-width: 0; }
+.onboarding .setup-aside__main { max-width: 34rem; }
+.onboarding .setup-aside__main h1 { font-size: clamp(2rem, 3.5vw, 3.4rem); }
+.onboarding .setup-form-wrap { width: 100%; max-width: 35rem; }
+.onboarding-fields { border: 0; padding: 0; margin: 0; display: grid; gap: 1.2rem; min-width: 0; }
+.onboarding-fields > .public-locale, .onboarding-name-grid > .public-locale { min-width: 0; }
+.onboarding .form-control { width: 100%; min-width: 0; }
+.onboarding .form-label { display: block; margin-block-end: .5rem; }
+.onboarding .form-hint, .onboarding-field-error { display: block; margin-block-start: .4rem; }
+.onboarding-field-error { color: var(--danger, #b42318); }
+.onboarding-name-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.onboarding-steps { display: grid; gap: .8rem; padding-inline-start: 1.4rem; margin-block: 2rem; }
+.onboarding-steps li[aria-current="step"] { font-weight: 700; }
+.onboarding-identity { overflow-wrap: anywhere; }
+.onboarding .setup-aside__footer a { color: inherit; text-decoration: underline; text-underline-offset: .2rem; }
+.onboarding a:focus-visible, .onboarding input:focus-visible, .onboarding select:focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+.auth-form__foot:has(> .button) { display: flex; justify-content: center; flex-wrap: wrap; gap: .75rem; }
+@media (max-width: 1000px) {
+  .public-setup.onboarding { grid-template-columns: minmax(0, 1fr); }
+  .onboarding .setup-aside { padding: 4rem 2rem 2rem; }
+  .onboarding .setup-aside { min-height: auto; }
+  .onboarding .setup-aside__main { margin-block: 2rem; }
+  .onboarding .setup-aside__footer { margin-block-start: 0; }
+  .onboarding .setup-content { padding: 2rem; }
+}
+@media (max-width: 480px) {
+  .onboarding .setup-aside, .onboarding .setup-content { padding: 1.25rem; }
+  .onboarding .setup-aside { padding-block-start: 4rem; }
+  .onboarding-name-grid { grid-template-columns: minmax(0, 1fr); }
+  .onboarding .setup-submit { width: 100%; }
+}

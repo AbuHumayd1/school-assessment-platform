@@ -7,6 +7,7 @@ export function signInDestination(user, workspaces, from, hasCandidateAccess = f
   const pathname = from?.pathname
   const safePath = typeof pathname === 'string' && !/[\\\s?#%]/.test(pathname)
     && !pathname.split('/').some(part => part === '.' || part === '..')
+  if (user?.id && safePath && pathname === '/setup') return '/setup'
   const staffMatch = safePath && pathname.match(/^\/app(?:\/([a-z]+))?\/?$/)
   const role = selectedRole || (workspaces.length === 1 ? workspaces[0].role : null)
   const staffReturn = hasWorkspace && staffMatch && (!staffMatch[1] || canAccessStaffCapability(role, staffRoutes[staffMatch[1]]))

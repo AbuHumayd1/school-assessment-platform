@@ -127,7 +127,7 @@ export default function LandingPage() {
             Create questions, conduct examinations, mark submissions and manage results in one place. Built for schools, courses, training programmes and professional examinations.
           </p>
           <div className="landing-hero__actions">
-            <Button as={Link} to="/setup" size="large">Setup Preview<Icon name="arrow" size={18} /></Button>
+            <Button as={Link} to="/setup" size="large">Get Started<Icon name="arrow" size={18} /></Button>
             <Button as={Link} to="/how-it-works" variant="outline" size="large"><Icon name="eye" size={17} />See How It Works</Button>
           </div>
           <p className="landing-hero__note"><Icon name="check" size={15} /> Built for education, training and certification organisations.</p>
@@ -220,7 +220,7 @@ export default function LandingPage() {
         </div>
         <div className="landing-final-cta__actions">
           <Button as={Link} to="/how-it-works" variant="outline-light">See How It Works</Button>
-          <Button as={Link} to="/setup" className="landing-final-cta__primary">Setup Preview<Icon name="arrow" size={17} /></Button>
+          <Button as={Link} to="/setup" className="landing-final-cta__primary">Get Started<Icon name="arrow" size={17} /></Button>
         </div>
       </section>
     </div></PublicLocaleTree>

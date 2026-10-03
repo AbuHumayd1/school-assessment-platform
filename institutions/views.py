@@ -1,6 +1,10 @@
 from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from audit.models import AuditEvent
 from audit.services import record_event
@@ -8,12 +12,26 @@ from tenants.models import InstitutionMembership
 from .models import Institution
 from .permissions import CanManageInstitutionProfile, is_platform_administrator
 from .serializers import InstitutionSerializer
+from .onboarding import WorkspaceCreationSerializer
 
 
 class InstitutionViewSet(viewsets.ModelViewSet):
     serializer_class = InstitutionSerializer
     permission_classes = (CanManageInstitutionProfile,)
     http_method_names = ("get", "post", "patch", "head", "options")
+
+    @action(detail=False, methods=["post"], url_path="create-workspace",
+            permission_classes=[IsAuthenticated], throttle_classes=[ScopedRateThrottle])
+    def create_workspace(self, request):
+        serializer = WorkspaceCreationSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        institution = serializer.save()
+        return Response(WorkspaceCreationSerializer(institution).data, status=201)
+
+    def get_throttles(self):
+        if self.action == "create_workspace":
+            self.throttle_scope = "workspace_create"
+        return super().get_throttles()
 
     def get_queryset(self):
         user = self.request.user
