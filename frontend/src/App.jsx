@@ -21,6 +21,9 @@ import {
 import { QuickExamLayout, QuickEntryPage, QuickInstructionsPage, QuickAttemptPage, QuickCompletePage, QuickAttemptNavigationGuard } from './pages/public/QuickExamPages.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
 import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
+import ExamsPage from './pages/staff/ExamsPage.jsx'
+import ExamDetailPage from './pages/staff/ExamDetailPage.jsx'
+import ExamFormPage from './pages/staff/ExamFormPage.jsx'
 import CandidatesPage from './pages/staff/CandidatesPage.jsx'
 import StudentDashboardPage from './pages/student/StudentDashboardPage.jsx'
 import StudentExamsPage from './pages/student/StudentExamsPage.jsx'
@@ -81,7 +84,6 @@ const staffPages = [
   ['classes', 'Classes / Cohorts', 'groups'],
   ['subjects', 'Subjects', 'subjects'],
   ['questions', 'Questions', 'questions'],
-  ['exams', 'Exams', 'assessments'],
   ['submissions', 'Submissions', 'submissions'],
   ['results', 'Results', 'results'],
   ['reports', 'Reports', 'reports'],
@@ -127,6 +129,10 @@ export default function App() {
 
         <Route path="app" element={<RequireWorkspace><StaffLayout /></RequireWorkspace>}>
           <Route index element={<StaffIndex />} />
+          <Route path="exams" element={<ExamsPage />} />
+          <Route path="exams/new" element={<ExamFormPage />} />
+          <Route path="exams/:assessmentId" element={<ExamDetailPage />} />
+          <Route path="exams/:assessmentId/edit" element={<ExamFormPage />} />
           <Route path="students" element={<CandidatesPage />} />
           {staffPages.map(([path, title, capability]) => (
             <Route key={path} path={path} element={<StaffPage title={title} capability={capability} />} />

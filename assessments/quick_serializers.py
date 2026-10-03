@@ -42,8 +42,13 @@ class ConfigurationReadSerializer(serializers.ModelSerializer):
 
 class CredentialReadSerializer(serializers.ModelSerializer):
     candidate_identifier = serializers.CharField(source="candidate.candidate_id", read_only=True)
+    candidate_name = serializers.SerializerMethodField()
+    candidate_status = serializers.CharField(source="candidate.status", read_only=True)
+
+    def get_candidate_name(self, obj):
+        return f"{obj.candidate.first_name} {obj.candidate.last_name}".strip()
 
     class Meta:
         model = QuickExamCredential
-        fields = ("id", "configuration", "candidate", "candidate_identifier", "active", "version", "expires_at", "created_at", "generated_at", "revoked_at")
+        fields = ("id", "configuration", "candidate", "candidate_identifier", "candidate_name", "candidate_status", "active", "version", "expires_at", "created_at", "generated_at", "revoked_at")
         read_only_fields = fields

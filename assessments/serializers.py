@@ -67,6 +67,11 @@ class AssessmentQuestionSerializer(serializers.ModelSerializer):
 
 
 class AssessmentSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    group_name = serializers.CharField(source="group.name", read_only=True, default=None)
+    question_count = serializers.SerializerMethodField()
+    quick_access_configured = serializers.SerializerMethodField()
+    has_attempt_history = serializers.SerializerMethodField()
     institution = serializers.PrimaryKeyRelatedField(read_only=True)
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.none())
     group = serializers.PrimaryKeyRelatedField(queryset=Group.objects.none(), required=False, allow_null=True)
@@ -88,6 +93,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
             "randomize_questions", "randomize_options", "security_level", "result_visibility",
             "candidate_access", "review_allowed", "result_release_mode", "status", "created_by",
             "reviewed_by", "approved_by", "questions", "created_at", "updated_at",
+            "subject_name", "group_name", "question_count", "quick_access_configured", "has_attempt_history",
         )
         read_only_fields = ("id", "institution", "total_marks", "status", "created_by", "reviewed_by", "approved_by", "created_at", "updated_at")
 
@@ -101,6 +107,19 @@ class AssessmentSerializer(serializers.ModelSerializer):
             self.fields["questions"].child.fields["question"].queryset = Question.objects.filter(
                 institution=institution, status=Question.Status.APPROVED
             )
+
+    def get_quick_access_configured(self, obj):
+        from .models import QuickExamConfiguration
+        value = getattr(obj, "quick_access_configured", None)
+        return value if value is not None else QuickExamConfiguration.objects.filter(assessment=obj).exists()
+
+    def get_has_attempt_history(self, obj):
+        from attempts.models import Attempt
+        value = getattr(obj, "has_attempt_history", None)
+        return value if value is not None else Attempt.objects.filter(assessment=obj).exists()
+
+    def get_question_count(self, obj):
+        return obj.assessment_questions.count()
 
     def validate(self, attrs):
         institution = self.context.get("institution") or getattr(self.instance, "institution", None)

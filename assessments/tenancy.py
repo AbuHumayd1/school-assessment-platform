@@ -30,5 +30,5 @@ def writable_assessment_institutions(user):
 
 
 def assessment_institution_for_request(request):
-    # Reuse Phase 1's explicit tenant selection and membership validation.
-    return write_institution_for_request(request)
+    from tenants.querysets import resolve_institution_context
+    return resolve_institution_context(request, ASSESSMENT_READ_ROLES)
