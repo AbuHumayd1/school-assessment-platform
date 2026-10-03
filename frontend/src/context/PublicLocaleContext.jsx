@@ -229,6 +229,8 @@ const roadmapAr = {
   'Payments and financial administration': 'المدفوعات والإدارة المالية', 'Potential institution-focused payment, fee and financial record workflows. This is not a general accounting product.': 'مسارات محتملة للمدفوعات والرسوم والسجلات المالية المخصصة للمؤسسات. ولا تمثل هذه المنصة منتجًا عامًا للمحاسبة.', 'Connect teaching, assessment and academic information to support better-informed educational decisions.': 'ربط معلومات التدريس والتقييم والشؤون الأكاديمية لدعم قرارات تعليمية مبنية على معرفة أفضل.', 'Classroom teaching resources': 'موارد التدريس الصفي', 'Future teaching materials may include AI-assisted presentation resources, subject to educator review and control.': 'قد تشمل المواد التعليمية مستقبلًا موارد عروض تقديمية بمساعدة الذكاء الاصطناعي، مع خضوعها لمراجعة المعلم وتحكمه.', 'Built with education in view': 'نضع التعليم في صميم رؤيتنا', 'Explore current features': 'استكشف الميزات المتاحة',
 }
 
+Object.assign(ar, { 'Back to website': 'العودة إلى الموقع' })
+
 export function PublicLocaleProvider({ children }) {
   const [locale, setLocale] = useState(() => {
     try { return localStorage.getItem(KEY) === 'ar' ? 'ar' : 'en' } catch { return 'en' }
