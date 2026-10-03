@@ -2,11 +2,14 @@ import hashlib
 import json
 from datetime import timedelta
 from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 from django.conf import settings
 from django.core.cache import cache
 from django.contrib.auth.hashers import make_password
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
+from django.db import connections
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -659,3 +662,117 @@ class QuickSessionTests(TestCase):
         self.assertIs(QuickReviewView.patch, AttemptReviewFlagView.patch)
         self.assertIs(QuickIntegrityView.post, AttemptIntegrityView.post)
         self.assertIs(QuickSubmitView.post, AttemptSubmitView.post)
+
+    def test_replaced_prestart_session_cannot_start_and_new_session_starts_only_once(self):
+        first = self.login_quick()
+        old = APIClient(enforce_csrf_checks=True)
+        old.cookies = self.client.cookies.copy()
+        old.defaults["HTTP_X_CSRFTOKEN"] = self.csrf
+        self.login_quick()
+        first.refresh_from_db()
+        self.assertIsNotNone(first.revoked_at)
+        self.assertEqual(old.post(self.base + "start/", {}, format="json").status_code, 401)
+        first_start = self.client.post(self.base + "start/", {}, format="json")
+        second_start = self.client.post(self.base + "start/", {}, format="json")
+        self.assertEqual(first_start.status_code, 201)
+        self.assertEqual(second_start.status_code, 200)
+        self.assertEqual(first_start.data["id"], second_start.data["id"])
+        self.assertEqual(Attempt.objects.count(), 1)
+
+    def test_active_takeover_rejects_every_old_operation_and_preserves_answers_deadline_and_attempt(self):
+        attempt = self.begin()
+        selected = [self.mcq.options.first().pk]
+        self.assertEqual(self.client.put(self.question_route(attempt, self.mcq, "answer/"), {"selected_options": selected}, format="json").status_code, 200)
+        before = Attempt.objects.values().get(pk=attempt.pk)
+        old = APIClient(enforce_csrf_checks=True)
+        old.cookies = self.client.cookies.copy()
+        old.defaults["HTTP_X_CSRFTOKEN"] = self.csrf
+        for _ in range(2):
+            self.login_quick()
+        operations = [
+            ("post", self.base + "start/", {}),
+            ("get", self.route(attempt), None),
+            ("get", self.route(attempt, "questions/"), None),
+            ("get", self.question_route(attempt, self.mcq), None),
+            ("put", self.question_route(attempt, self.mcq, "answer/"), {"selected_options": []}),
+            ("patch", self.question_route(attempt, self.mcq, "review/"), {"marked_for_review": True}),
+            ("post", self.route(attempt, "integrity/"), {"signal": "navigation_attempt"}),
+            ("post", self.route(attempt, "submit/"), {}),
+        ]
+        for method, route, payload in operations:
+            with self.subTest(method=method, route=route):
+                response = getattr(old, method)(route) if payload is None else getattr(old, method)(route, payload, format="json")
+                self.assertEqual(response.status_code, 401)
+        self.assertEqual(Attempt.objects.values().get(pk=attempt.pk), before)
+        self.assertFalse(Result.objects.exists())
+        self.assertFalse(attempt.attempt_questions.get(question=self.mcq).marked_for_review)
+        self.assertEqual(list(Answer.objects.get(attempt=attempt, question=self.mcq).selections.values_list("option_id", flat=True)), selected)
+        self.assertTrue(self.client.get(self.base + "session/").data["availability"]["can_resume"])
+        response = self.client.post(self.base + "start/", {}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], attempt.pk)
+        attempt.refresh_from_db()
+        for field in ("started_at", "expires_at", "attempt_number"):
+            self.assertEqual(getattr(attempt, field), before[field])
+        self.assertEqual(Attempt.objects.count(), 1)
+        self.assertEqual(QuickExamSession.objects.filter(revoked_at__isnull=True).count(), 1)
+
+    def test_reverification_after_context_resolution_is_rechecked_before_engine_operation(self):
+        from .quick_sessions import resolve_session
+        from attempts.services import lock_access_attempt, start_access_attempt
+        from rest_framework.exceptions import AuthenticationFailed
+        attempt = self.begin()
+        context = resolve_session(token=self.client.cookies[COOKIE_NAME].value)
+        self.login_quick()
+        with self.assertRaises(AuthenticationFailed):
+            start_access_attempt(context)
+        with self.assertRaises(AuthenticationFailed):
+            lock_access_attempt(context, attempt.pk)
+        self.assertEqual(Attempt.objects.count(), 1)
+
+
+@skipUnlessDBFeature("has_select_for_update")
+class QuickClientRaceTests(TransactionTestCase):
+    PIN = QuickSessionTests.PIN
+    make_question = staticmethod(CandidateAttemptAPITests.make_question)
+    make_assessment = staticmethod(CandidateAttemptAPITests.make_assessment)
+
+    def setUp(self):
+        # Committed fixtures are visible to the independent worker connections.
+        QuickSessionTests.setUpTestData.__func__(type(self))
+        from .quick_sessions import verify_and_create_session
+        _, self.token = verify_and_create_session(self.configuration.exam_code, self.quick_candidate.candidate_id, QuickSessionTests.PIN)
+
+    def race(self, operation):
+        barrier = Barrier(2)
+        def worker():
+            try:
+                barrier.wait(timeout=15)
+                return operation()
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(worker) for _ in range(2)]
+            return [future.result(timeout=30) for future in futures]
+
+    def test_simultaneous_starts_use_one_attempt_and_preserve_the_deadline(self):
+        from .quick_sessions import resolve_session
+        from attempts.services import start_access_attempt
+        def start():
+            attempt, created = start_access_attempt(resolve_session(token=self.token))
+            return attempt.pk, created, attempt.expires_at
+        results = self.race(start)
+        self.assertEqual(Attempt.objects.count(), 1)
+        self.assertEqual(results[0][0], results[1][0])
+        self.assertEqual(results[0][2], results[1][2])
+        self.assertEqual(sorted(row[1] for row in results), [False, True])
+
+    def test_simultaneous_finalization_marks_once(self):
+        from .quick_sessions import resolve_session
+        from attempts.services import start_access_attempt, finalize_attempt, CompletionReason
+        attempt, _ = start_access_attempt(resolve_session(token=self.token))
+        def finish():
+            _, finalized = finalize_attempt(attempt.pk, reason=CompletionReason.MANUAL)
+            return finalized
+        self.assertEqual(sorted(self.race(finish)), [False, True])
+        self.assertEqual(Result.objects.filter(attempt=attempt).count(), 1)

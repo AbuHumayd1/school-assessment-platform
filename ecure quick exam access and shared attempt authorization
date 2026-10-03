@@ -1,0 +1,23 @@
+ assessments/migrations/0003_quick_exam_access.py |  84 [32m+++[m
+ assessments/models.py                            |   8 [32m+[m
+ assessments/quick_authentication.py              |  15 [32m+[m
+ assessments/quick_models.py                      | 104 [32m++++[m
+ assessments/quick_public_views.py                | 167 [32m++++++[m
+ assessments/quick_serializers.py                 |  49 [32m++[m
+ assessments/quick_services.py                    | 192 [32m+++++++[m
+ assessments/quick_sessions.py                    | 150 [32m+++++[m
+ assessments/quick_throttles.py                   |  31 [32m++[m
+ assessments/quick_urls.py                        |  23 [32m+[m
+ assessments/quick_views.py                       | 104 [32m++++[m
+ assessments/test_quick_access.py                 | 411 [32m++++++++++++++[m
+ assessments/test_quick_sessions.py               | 661 [32m+++++++++++++++++++++++[m
+ assessments/urls.py                              |   5 [32m+[m
+ attempts/access.py                               |  25 [32m+[m
+ attempts/integrity.py                            |   9 [32m+[m[31m-[m
+ attempts/services.py                             |  64 [32m++[m[31m-[m
+ attempts/views.py                                |  62 [32m++[m[31m-[m
+ config/settings/base.py                          |   9 [32m+[m[31m-[m
+ config/settings/production.py                    |   1 [32m+[m
+ config/urls.py                                   |   1 [32m+[m
+ docs/quick-exam-access.md                        | 123 [32m+++++[m
+ 22 files changed, 2258 insertions(+), 40 deletions(-)

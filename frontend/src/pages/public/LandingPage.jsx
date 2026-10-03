@@ -100,7 +100,7 @@ function ProductPreview() {
 
 function ContentCard({ item, className = '', gradientTone = '' }) {
   return (
-    <PublicLocaleTree><Card as="article" className={['landing-card', gradientTone && `gradient-card gradient-card--${gradientTone}`, className].filter(Boolean).join(' ')}>
+    <PublicLocaleTree><Card as="article" data-public-reveal="" className={['landing-card', gradientTone && `gradient-card gradient-card--${gradientTone}`, className].filter(Boolean).join(' ')}>
       <span className="landing-card__icon"><Icon name={item.icon} size={19} /></span>
       {item.tag && <span className="landing-card__tag">{item.tag}</span>}
       <h3>{item.title}</h3>
@@ -136,25 +136,25 @@ export default function LandingPage() {
       </section>
 
       <section className="landing-section landing-audiences" aria-labelledby="audiences-title">
-        <div className="landing-section__heading landing-section__heading--center">
+        <div data-public-reveal="" className="landing-section__heading landing-section__heading--center">
           <p className="landing-kicker">Organisations we support</p>
           <h2 id="audiences-title">Designed for Anyone Running Structured Assessments</h2>
           <p>From classroom quizzes to certification examinations, the platform adapts to your assessment format.</p>
         </div>
-        <div className="landing-grid landing-grid--audiences">
+        <div data-public-reveal-group="" className="landing-grid landing-grid--audiences">
           {audiences.map((item, index) => <ContentCard key={item.title} item={item} gradientTone={['soft-indigo', 'soft-blue', 'soft-violet'][index % 3]} />)}
         </div>
       </section>
 
       <section className="landing-section landing-process" aria-labelledby="process-title">
-        <div className="landing-section__heading landing-section__heading--center">
+        <div data-public-reveal="" className="landing-section__heading landing-section__heading--center">
           <p className="landing-kicker">A clear assessment workflow</p>
           <h2 id="process-title">How It Works</h2>
           <p>A straightforward process from initial question authoring to final results.</p>
         </div>
-        <ol className="landing-steps">
+        <ol data-public-reveal-group="" className="landing-steps">
           {steps.map((step, index) => (
-            <li className={`landing-step${index < 4 ? ` gradient-card gradient-card--${['soft-indigo', 'soft-blue', 'soft-violet'][index % 3]}` : ''}`} key={step.title}>
+            <li data-public-reveal="" className={`landing-step${index < 4 ? ` gradient-card gradient-card--${['soft-indigo', 'soft-blue', 'soft-violet'][index % 3]}` : ''}`} key={step.title}>
               <div className="landing-step__top"><span className="landing-step__number">{String(index + 1).padStart(2, '0')}</span><span className="landing-step__label">STEP {index + 1}</span></div>
               <h3>{step.title}</h3><p>{step.description}</p>
             </li>
@@ -163,16 +163,16 @@ export default function LandingPage() {
       </section>
 
       <section className="landing-section landing-features" aria-labelledby="features-title">
-        <div className="landing-section__heading landing-section__heading--split">
+        <div data-public-reveal="" className="landing-section__heading landing-section__heading--split">
           <div><p className="landing-kicker">Practical capabilities</p><h2 id="features-title">Everything Needed to Manage Assessments Dependably</h2></div>
           <p>Run structured assessments with a clear workflow focused on question creation, examination delivery and results.</p>
         </div>
-        <div className="landing-grid landing-grid--features">
+        <div data-public-reveal-group="" className="landing-grid landing-grid--features">
           {features.map((item, index) => <ContentCard key={item.title} item={item} className="landing-card--feature" gradientTone={index < 6 ? ['soft-indigo', 'soft-blue', 'soft-violet'][index % 3] : ''} />)}
         </div>
       </section>
 
-      <section className="landing-vision gradient-card gradient-card--soft-indigo" aria-labelledby="landing-vision-title">
+      <section data-public-reveal="" className="landing-vision gradient-card gradient-card--soft-indigo" aria-labelledby="landing-vision-title">
         <div className="landing-vision__copy">
           <p className="landing-kicker">Assessment is the starting point</p>
           <h2 id="landing-vision-title">Built for assessment today. Built to grow with education tomorrow.</h2>
@@ -193,14 +193,14 @@ export default function LandingPage() {
       </section>
 
       <section className="landing-section landing-pricing" aria-labelledby="pricing-title">
-        <div className="landing-section__heading landing-section__heading--center">
+        <div data-public-reveal="" className="landing-section__heading landing-section__heading--center">
           <p className="landing-kicker">Institutional solutions</p>
           <h2 id="pricing-title">Plans Aligned with Your Institution</h2>
           <p>Explore an approach suited to your organisation and assessment needs.</p>
         </div>
-        <div className="landing-plans">
+        <div data-public-reveal-group="" className="landing-plans">
           {plans.map(plan => (
-            <Card as="article" className={`landing-plan gradient-card gradient-card--${plan.featured ? 'accent' : plan.name === 'Starter' ? 'soft-indigo' : 'soft-blue'}${plan.featured ? ' landing-plan--featured' : ''}`} key={plan.name}>
+            <Card as="article" data-public-reveal="" className={`landing-plan gradient-card gradient-card--${plan.featured ? 'accent' : plan.name === 'Starter' ? 'soft-indigo' : 'soft-blue'}${plan.featured ? ' landing-plan--featured' : ''}`} key={plan.name}>
               {plan.featured && <span className="landing-plan__recommended">Flexible requirements</span>}
               <span className="landing-plan__eyebrow">{plan.name.toUpperCase()}</span>
               <h3>{plan.name}</h3><p>{plan.description}</p>
@@ -212,7 +212,7 @@ export default function LandingPage() {
         <p className="landing-pricing__note">Contact us to discuss an arrangement for your organisation.</p>
       </section>
 
-      <section className="landing-final-cta gradient-card gradient-card--deep" aria-labelledby="final-cta-title">
+      <section data-public-reveal="" className="landing-final-cta gradient-card gradient-card--deep" aria-labelledby="final-cta-title">
         <div>
           <p className="landing-kicker landing-kicker--light">Clearer assessment workflow</p>
           <h2 id="final-cta-title">Ready to Manage Assessments with Confidence?</h2>

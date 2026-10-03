@@ -1,0 +1,12 @@
+/* Typography lives in the existing public styles. This final app import owns motion. */
+.public-marketing-motion { display: contents; }
+.public-reveal--pending { opacity: 0; transform: translateY(20px); transition: none; }
+.public-reveal--shown { opacity: 1; transform: translateY(0); transition: opacity 600ms cubic-bezier(.2,.7,.25,1) var(--reveal-delay, 0ms), transform 600ms cubic-bezier(.2,.7,.25,1) var(--reveal-delay, 0ms); }
+@media (prefers-reduced-motion: reduce) {
+  .public-reveal--pending, .public-reveal--shown { opacity: 1; transform: none; transition: none; }
+}
+/* Five public links and account/language actions need the drawer earlier. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .public-layout .public-header > .public-nav, .public-layout .public-header__actions { display: none; }
+  .public-layout .public-menu-toggle { display: inline-flex; }
+}

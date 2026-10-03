@@ -18,6 +18,7 @@ import {
   SetupPage,
   SignInPage,
 } from './pages/public/PublicPages.jsx'
+import { QuickExamLayout, QuickEntryPage, QuickInstructionsPage, QuickAttemptPage, QuickCompletePage, QuickAttemptNavigationGuard } from './pages/public/QuickExamPages.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
 import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
 import CandidatesPage from './pages/staff/CandidatesPage.jsx'
@@ -103,6 +104,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ActiveAttemptNavigationGuard />
+      <QuickAttemptNavigationGuard />
       <RouteScrollRestoration />
       <Routes>
         <Route element={<PublicLayout />}>
@@ -114,6 +116,13 @@ export default function App() {
           <Route path="contact" element={<ContactPage />} />
           <Route path="signin" element={<SignInPage />} />
           <Route path="setup" element={<SetupPage />} />
+          <Route path="take-exam" element={<QuickEntryPage />} />
+        </Route>
+
+        <Route path="take-exam" element={<QuickExamLayout />}>
+          <Route path="instructions" element={<QuickInstructionsPage />} />
+          <Route path="attempt/:attemptId" element={<QuickAttemptPage />} />
+          <Route path="complete" element={<QuickCompletePage />} />
         </Route>
 
         <Route path="app" element={<RequireWorkspace><StaffLayout /></RequireWorkspace>}>

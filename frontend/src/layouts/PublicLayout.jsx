@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, NavLink, useLocation, useOutlet } from 'react-router-dom'
+import PublicMarketingMotion from '../components/common/PublicMarketingMotion.jsx'
 import Button from '../components/common/Button.jsx'
 import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
@@ -31,18 +32,21 @@ function PublicLayoutContent() {
   const { locale } = usePublicLocale()
   const { pathname } = useLocation()
   const outlet = useOutlet()
-  const standaloneRoute = pathname === '/signin' || pathname === '/setup'
+  const examRoute = /^\/take-exam\/attempt\//.test(pathname)
+  const standaloneRoute = pathname === '/signin' || pathname === '/setup' || examRoute
+  const marketingRoute = ['/', '/features', '/how-it-works', '/pricing', '/about', '/contact'].includes(pathname)
   const closeMenu = () => setMenuOpen(false)
 
   return (
-    <PublicLocaleTree><div className={`public-layout${standaloneRoute ? ' public-layout--standalone' : ''}`}>
+    <PublicLocaleTree><div className={`public-layout${standaloneRoute ? ' public-layout--standalone' : ''}${examRoute ? ' public-layout--exam' : ''}${marketingRoute ? ' public-layout--marketing' : ''}`}>
       {!standaloneRoute && <header className="public-header">
         <LogoWordmark ariaLabel={locale === 'ar' ? translatePublicText('School Assessment Platform home') : 'School Assessment Platform home'} />
         <PublicNavigation />
         <div className="public-header__actions">
           <PublicLanguageSwitcher />
-          <Button as={Link} to="/signin">Sign In</Button>
-          <Button as={Link} to="/setup" variant="outline" className="public-header__cta">Get Started</Button>
+          <Button as={Link} to="/take-exam" variant="outline" className="public-exam-cta">Take an Exam</Button>
+          <Button as={Link} to="/signin" variant="ghost">Sign In</Button>
+          <Button as={Link} to="/setup" className="public-header__cta">Get Started</Button>
         </div>
         <button className="icon-button public-menu-toggle" type="button" aria-label={locale === 'ar' ? translatePublicText('Open navigation') : 'Open navigation'} aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
           <Icon name="menu" />
@@ -50,16 +54,17 @@ function PublicLayoutContent() {
       </header>}
 
       {!standaloneRoute && <Drawer open={menuOpen} onClose={closeMenu} title={locale === 'ar' ? translatePublicText('Menu') : 'Menu'} closeLabel={locale === 'ar' ? translatePublicText('Close menu') : 'Close menu'} className="public-mobile-drawer">
-        <PublicNavigation onNavigate={closeMenu} />
-        <PublicLanguageSwitcher />
         <div className="public-mobile-drawer__actions">
-          <Button as={Link} to="/signin" onClick={closeMenu}>Sign In</Button>
-          <Button as={Link} to="/setup" variant="outline" onClick={closeMenu}>Get Started</Button>
+          <Button as={Link} to="/take-exam" variant="outline" className="public-exam-cta" onClick={closeMenu}>Take an Exam</Button>
+          <Button as={Link} to="/signin" variant="ghost" onClick={closeMenu}>Sign In</Button>
+          <Button as={Link} to="/setup" onClick={closeMenu}>Get Started</Button>
         </div>
+        <PublicLanguageSwitcher />
+        <PublicNavigation onNavigate={closeMenu} />
       </Drawer>}
 
-      {standaloneRoute && <div className="public-standalone-locale"><PublicLanguageSwitcher /></div>}
-      <main className="public-main">{outlet}</main>
+      {standaloneRoute && !examRoute && <div className="public-standalone-locale"><PublicLanguageSwitcher /></div>}
+      <main className="public-main"><PublicMarketingMotion enabled={marketingRoute} routeKey={pathname}>{outlet}</PublicMarketingMotion></main>
 
       {!standaloneRoute && <footer className="public-footer">
         <div className="public-footer__content">

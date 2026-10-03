@@ -9,6 +9,7 @@ import './styles/global.css'
 import './styles/components.css'
 import './styles/layouts.css'
 import './styles/student.css'
+import './styles/public-polish.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

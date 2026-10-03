@@ -6,9 +6,15 @@ import Icon from '../../components/common/Icon.jsx'
 import LoadingState from '../../components/common/LoadingState.jsx'
 import Modal from '../../components/common/Modal.jsx'
 import { ExamTimer, QuestionNavigator, QuestionRenderer, StudentEmptyState } from '../../components/student/StudentComponents.jsx'
-import { clearRememberedAttempt, getAttempt, getAttemptIntegrity, getAttemptQuestion, getAttemptQuestions, recordAttemptIntegrity, rememberActiveAttempt, saveAttemptAnswer, setAttemptReview, submitAttempt } from '../../services/attempts.js'
+import * as portalApi from '../../services/attempts.js'
 
-export default function StudentExamPage() {
+const identity = text => text
+const portalRunner = { ...portalApi, mode: 'portal', backPath: '/student/exams', backLabel: 'Back to My Exams', rememberPath: id => portalApi.rememberActiveAttempt(`/student/exam/${id}`), clearPath: portalApi.clearRememberedAttempt }
+
+export default function StudentExamPage({ api = portalRunner, translate = identity, onTerminal, headerControl }) {
+  const t = translate
+  const { getAttempt, getAttemptIntegrity, getAttemptQuestion, getAttemptQuestions, recordAttemptIntegrity, saveAttemptAnswer, setAttemptReview, submitAttempt } = api
+  const clearRememberedAttempt = api.clearPath
   const { attemptId } = useParams()
   const [attempt, setAttempt] = useState(null)
   const [questions, setQuestions] = useState([])
@@ -70,7 +76,7 @@ export default function StudentExamPage() {
       clearRememberedAttempt(attemptId)
     }
     return payload
-  }, [attemptId, applyServerClock])
+  }, [attemptId, applyServerClock, api])
 
   const applyIntegrityState = useCallback(payload => {
     setIntegrity(payload)
@@ -80,7 +86,7 @@ export default function StudentExamPage() {
       setSeconds(0)
       clearRememberedAttempt(attemptId)
     }
-  }, [attemptId])
+  }, [attemptId, api])
 
   const reportIntegritySignal = useCallback(async (signal, { quiet = false } = {}) => {
     const now = Date.now()
@@ -99,7 +105,7 @@ export default function StudentExamPage() {
       }
       return null
     }
-  }, [attemptId, applyIntegrityState])
+  }, [attemptId, applyIntegrityState, api])
 
   useEffect(() => {
     let cancelled = false
@@ -131,7 +137,7 @@ export default function StudentExamPage() {
       setLoading(false)
     } else load()
     return () => { cancelled = true }
-  }, [attemptId, applyServerClock])
+  }, [attemptId, applyServerClock, api])
 
   useEffect(() => {
     if (attemptStatus !== 'in_progress') return undefined
@@ -161,7 +167,7 @@ export default function StudentExamPage() {
       clearRememberedAttempt(attemptId)
       return undefined
     }
-    rememberActiveAttempt(`/student/exam/${attemptId}`)
+    api.rememberPath(attemptId)
     let cancelled = false
     getAttemptIntegrity(attemptId).then(payload => {
       if (!cancelled) applyIntegrityState(payload)
@@ -229,7 +235,7 @@ export default function StudentExamPage() {
     }
 
     function onIntegrityUpdate(event) {
-      if (String(event.detail?.attemptId) === String(attemptId) && event.detail?.state) {
+      if ((event.detail?.accessMode || 'portal') === api.mode && String(event.detail?.attemptId) === String(attemptId) && event.detail?.state) {
         applyIntegrityState(event.detail.state)
       }
     }
@@ -254,7 +260,7 @@ export default function StudentExamPage() {
       window.removeEventListener('attempt-integrity-updated', onIntegrityUpdate)
       document.removeEventListener('keydown', onDocumentKeyDown, true)
     }
-  }, [attemptId, attemptStatus, applyIntegrityState, reportIntegritySignal])
+  }, [attemptId, attemptStatus, applyIntegrityState, reportIntegritySignal, api])
 
   useEffect(() => {
     if (!attemptStatus || !questions.length || attemptStatus !== 'in_progress' || seconds <= 0) return undefined
@@ -284,7 +290,7 @@ export default function StudentExamPage() {
       if (!cancelled && requestId === questionRequestRef.current) setQuestionLoading(false)
     })
     return () => { cancelled = true }
-  }, [attemptId, attemptStatus, current, questions.length])
+  }, [attemptId, attemptStatus, current, questions.length, api])
 
   const persistAnswer = useCallback(index => {
     const item = questions[index]
@@ -309,7 +315,7 @@ export default function StudentExamPage() {
     })
     saveQueuesRef.current.set(item.id, task)
     return task
-  }, [attemptId, questions])
+  }, [attemptId, questions, api])
 
   const flushAnswer = useCallback(index => {
     const item = questions[index]
@@ -410,11 +416,16 @@ export default function StudentExamPage() {
     }
   }
 
-  if (loading) return <LoadingState label="Loading your examination…" />
-  if (error && !attempt) return <div className="student-page"><StudentEmptyState title="Examination unavailable" description={error} /><p className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></p></div>
-  if (attempt?.status === 'submitted') return <section className="exam-terminal-state"><span className="exam-terminal-state__icon"><Icon name="clipboard" size={31} /></span><p className="student-eyebrow">Submission received</p><h1>Exam Submitted</h1><p>Your examination has been submitted. Check My Results for updates from your institution.</p><div className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></div></section>
-  if (attempt?.status !== 'in_progress') return <section className="exam-terminal-state exam-terminal-state--expired"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">Examination window</p><h1>Time&apos;s Up</h1><p>Your saved answers have been marked. Check My Results when your institution releases the result.</p><div className="exam-terminal-state__actions"><Button as={Link} to="/student/exams" variant="outline">Back to My Exams</Button></div></section>
-  if (expiryFinalizing || seconds <= 0) return <section className="exam-terminal-state exam-terminal-state--expired" role="status"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">Examination window</p><h1>Finalising your examination</h1><p>Time is up. We are confirming your examination status with the server. This page will update when the connection is restored.</p></section>
+  useEffect(() => {
+    if (onTerminal && attemptStatus && ['submitted', 'expired'].includes(attemptStatus)) onTerminal()
+  }, [attemptStatus, onTerminal])
+
+  if (loading) return <LoadingState label={t('Loading your examination…')} />
+  if (error && !attempt) return <div className="student-page"><StudentEmptyState title={t('Examination unavailable')} description={t(error)} /><p className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></p></div>
+  if (onTerminal && attemptStatus && attemptStatus !== 'in_progress') return <LoadingState label={t('Opening your examination summary...')} />
+  if (attempt?.status === 'submitted') return <section className="exam-terminal-state"><span className="exam-terminal-state__icon"><Icon name="clipboard" size={31} /></span><p className="student-eyebrow">{t('Submission received')}</p><h1>{t('Exam Submitted')}</h1><p>{t('Your examination has been submitted. Check My Results for updates from your institution.')}</p><div className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></div></section>
+  if (attempt?.status !== 'in_progress') return <section className="exam-terminal-state exam-terminal-state--expired"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">{t('Examination window')}</p><h1>{t("Time's Up")}</h1><p>{t('Your saved answers have been marked. Check My Results when your institution releases the result.')}</p><div className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></div></section>
+  if (expiryFinalizing || seconds <= 0) return <section className="exam-terminal-state exam-terminal-state--expired" role="status"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">{t('Examination window')}</p><h1>{t('Finalising your examination')}</h1><p>{t('Time is up. We are confirming your examination status with the server. This page will update when the connection is restored.')}</p></section>
 
   const optionQuestion = question ? {
     id: question.id,
@@ -425,18 +436,18 @@ export default function StudentExamPage() {
   const statusLabel = saveState[current] === 'saving' ? 'Saving answer…' : saveState[current] === 'error' ? 'Answer not saved' : 'All changes saved'
 
   return <div className="student-exam-runner" onCopy={event => blockContentExtraction(event, 'copy_attempt')} onCut={event => blockContentExtraction(event, 'cut_attempt')} onContextMenu={event => blockContentExtraction(event, 'context_menu_attempt')}>
-    <header className="exam-runner-header"><div className="exam-runner-brand"><span className="wordmark__mark" aria-hidden="true">SA</span><span>School Assessment<br /><small>Student portal</small></span></div><div className="exam-runner-title"><h1>{attempt.assessment_title}</h1><p>{attempt.assessment_type} · Attempt {attempt.attempt_number}</p></div><div className="exam-runner-header__status"><span className="preview-save-state" role="status"><Icon name="file" size={16} />{statusLabel}</span><ExamTimer seconds={seconds} /></div></header>
-    <div className="exam-runner-context"><span><Icon name="clipboard" size={16} />Live examination</span><span className="exam-runner-context__candidate">{questions.length} questions</span><span>Answers save automatically</span></div>
-    {(integrity?.warning || leaveWarning) && integrity?.interruption_count > 0 && <aside className="exam-integrity-warning" role="alert"><Icon name="bell" size={19} /><div><strong>Examination interruption detected.</strong><p>Leaving the examination is recorded. Repeated interruptions may cause your examination to be submitted automatically.</p><span>Warning {integrity.interruption_count} of {integrity.interruption_limit}</span></div></aside>}
-    {integrityError && <p className="exam-integrity-sync-error" role="status">Integrity status could not sync. Keep this page open and check your connection.</p>}
-    <div className="exam-runner-progress"><div><strong>Question {current + 1} of {questions.length}</strong><span>Question {questions[current]?.order ?? current + 1}</span></div><div className="exam-progress-track" role="progressbar" aria-label="Answered questions" aria-valuemin="0" aria-valuemax={questions.length} aria-valuenow={answeredCount}><span style={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }} /></div><div className="exam-progress-counts"><span>{answeredCount} answered</span><span>{questions.length - answeredCount} unanswered</span><span>{markedCount} marked</span></div></div>
-    <main className="exam-runner-content"><section className="exam-question-column"><Card as="article" className="exam-question-card"><div className="exam-question-card__heading"><span className="exam-question-index">Q{String(current + 1).padStart(2, '0')}</span><div><strong>{question?.question?.question_type === 'multiple_choice' ? 'Multiple choice' : question?.question?.question_type === 'multiple_select' ? 'Multiple select' : question?.question?.question_type === 'true_false' ? 'True or false' : 'Question'}</strong><span>Question {current + 1}</span></div><Button variant={marked.has(current) ? 'secondary' : 'outline'} size="small" aria-pressed={marked.has(current)} onClick={changeReview} disabled={questionLoading || !question}><Icon name="file" size={16} />{marked.has(current) ? 'Marked for Review' : 'Mark for Review'}</Button></div><div className="exam-question-card__body">{questionLoading || !optionQuestion ? <LoadingState label="Loading question…" /> : <QuestionRenderer question={optionQuestion} value={answers[current] || []} onChange={changeAnswer} />}<p className="preview-answer-note" role="status"><Icon name="file" size={15} />{statusLabel}</p>{(saveError || error) && <p className="auth-error" role="alert">{saveError || error}</p>}{saveError && <Button variant="outline" size="small" onClick={() => flushAnswer(current).catch(() => {})}>Retry save</Button>}</div><div className="exam-question-card__footer"><Button variant="outline" disabled={current === 0 || questionLoading} onClick={() => moveTo(current - 1)}><Icon name="arrow" size={16} className="icon-flip-horizontal" />Previous</Button><div><Button variant="ghost" disabled={questionLoading || !question} onClick={changeReview}>{marked.has(current) ? 'Remove review mark' : 'Mark for review'}</Button><Button disabled={questionLoading || !question} onClick={() => moveTo(current + 1)}>{current === questions.length - 1 ? 'Review & Submit' : 'Next'}<Icon name="arrow" size={17} /></Button></div></div></Card><div className="exam-runner-mobile-nav" aria-label="Question controls"><Button variant="outline" disabled={current === 0 || questionLoading} onClick={() => moveTo(current - 1)}>Previous</Button><Button disabled={questionLoading || !question} onClick={() => moveTo(current + 1)}>{current === questions.length - 1 ? 'Review & Submit' : 'Next'}<Icon name="arrow" size={17} /></Button></div></section>
-      <aside className="exam-runner-aside"><QuestionNavigator questions={questions} answers={answers} marked={marked} current={current} onSelect={selectQuestion} /><Card className="exam-preview-reminder"><Icon name="bell" size={19} /><div><strong>Your progress is saved</strong><p>Your responses and review flags are saved to this attempt and restored if you return.</p></div></Card></aside>
+    <header className="exam-runner-header"><div className="exam-runner-brand"><span className="wordmark__mark" aria-hidden="true">{t('SA')}</span><span>{t('School Assessment')}<br /><small>{t(api.mode === 'quick' ? 'Take an Exam' : 'Student portal')}</small></span></div><div className="exam-runner-title"><h1>{attempt.assessment_title}</h1><p>{attempt.assessment_type} · {t(`Attempt ${attempt.attempt_number}`)}</p></div><div className="exam-runner-header__status"><span className="preview-save-state" role="status"><Icon name="file" size={16} />{t(statusLabel)}</span><ExamTimer seconds={seconds} translate={t} />{headerControl}</div></header>
+    <div className="exam-runner-context"><span><Icon name="clipboard" size={16} />{t('Live examination')}</span><span className="exam-runner-context__candidate">{t(`${questions.length} questions`)}</span><span>{t('Answers save automatically')}</span></div>
+    {(integrity?.warning || leaveWarning) && integrity?.interruption_count > 0 && <aside className="exam-integrity-warning" role="alert"><Icon name="bell" size={19} /><div><strong>{t('Examination interruption detected.')}</strong><p>{t('Leaving the examination is recorded. Repeated interruptions may cause your examination to be submitted automatically.')}</p><span>{t(`Warning ${integrity.interruption_count} of ${integrity.interruption_limit}`)}</span></div></aside>}
+    {integrityError && <p className="exam-integrity-sync-error" role="status">{t('Integrity status could not sync. Keep this page open and check your connection.')}</p>}
+    <div className="exam-runner-progress"><div><strong>{t(`Question ${current + 1} of ${questions.length}`)}</strong><span>{t(`Question ${questions[current]?.order ?? current + 1}`)}</span></div><div className="exam-progress-track" role="progressbar" aria-label={t('Answered questions')} aria-valuemin="0" aria-valuemax={questions.length} aria-valuenow={answeredCount}><span style={{ width: `${questions.length ? (answeredCount / questions.length) * 100 : 0}%` }} /></div><div className="exam-progress-counts"><span>{t(`${answeredCount} answered`)}</span><span>{t(`${questions.length - answeredCount} unanswered`)}</span><span>{t(`${markedCount} marked`)}</span></div></div>
+    <main className="exam-runner-content"><section className="exam-question-column"><Card as="article" className="exam-question-card"><div className="exam-question-card__heading"><span className="exam-question-index">Q{String(current + 1).padStart(2, '0')}</span><div><strong>{question?.question?.question_type === 'multiple_choice' ? t('Multiple choice') : question?.question?.question_type === 'multiple_select' ? t('Multiple select') : question?.question?.question_type === 'true_false' ? t('True or false') : t('Question')}</strong><span>{t(`Question ${current + 1}`)}</span></div><Button variant={marked.has(current) ? 'secondary' : 'outline'} size="small" aria-pressed={marked.has(current)} onClick={changeReview} disabled={questionLoading || !question}><Icon name="file" size={16} />{marked.has(current) ? t('Marked for Review') : t('Mark for Review')}</Button></div><div className="exam-question-card__body">{questionLoading || !optionQuestion ? <LoadingState label={t('Loading question…')} /> : <QuestionRenderer translate={t} question={optionQuestion} value={answers[current] || []} onChange={changeAnswer} />}<p className="preview-answer-note" role="status"><Icon name="file" size={15} />{t(statusLabel)}</p>{(saveError || error) && <p className="auth-error" role="alert">{saveError || error}</p>}{saveError && <Button variant="outline" size="small" onClick={() => flushAnswer(current).catch(() => {})}>{t('Retry save')}</Button>}</div><div className="exam-question-card__footer"><Button variant="outline" disabled={current === 0 || questionLoading} onClick={() => moveTo(current - 1)}><Icon name="arrow" size={16} className="icon-flip-horizontal" />{t('Previous')}</Button><div><Button variant="ghost" disabled={questionLoading || !question} onClick={changeReview}>{marked.has(current) ? t('Remove review mark') : t('Mark for review')}</Button><Button disabled={questionLoading || !question} onClick={() => moveTo(current + 1)}>{current === questions.length - 1 ? t('Review & Submit') : t('Next')}<Icon name="arrow" size={17} /></Button></div></div></Card><div className="exam-runner-mobile-nav" aria-label={t('Question controls')}><Button variant="outline" disabled={current === 0 || questionLoading} onClick={() => moveTo(current - 1)}>{t('Previous')}</Button><Button disabled={questionLoading || !question} onClick={() => moveTo(current + 1)}>{current === questions.length - 1 ? t('Review & Submit') : t('Next')}<Icon name="arrow" size={17} /></Button></div></section>
+      <aside className="exam-runner-aside"><QuestionNavigator translate={t} questions={questions} answers={answers} marked={marked} current={current} onSelect={selectQuestion} /><Card className="exam-preview-reminder"><Icon name="bell" size={19} /><div><strong>{t('Your progress is saved')}</strong><p>{t('Your responses and review flags are saved to this attempt and restored if you return.')}</p></div></Card></aside>
     </main>
-    <footer className="exam-runner-footer"><span><Icon name="cap" size={15} />School Assessment Platform · Student portal</span><Button variant="ghost" size="small" onClick={handleAttemptNavigation}>Exit examination</Button></footer>
+    <footer className="exam-runner-footer"><span><Icon name="cap" size={15} />{t(api.mode === 'quick' ? 'School Assessment Platform' : 'School Assessment Platform · Student portal')}</span><Button variant="ghost" size="small" onClick={handleAttemptNavigation}>{t('Exit examination')}</Button></footer>
 
-    <Modal open={confirmOpen} onClose={() => !submitting && setConfirmOpen(false)} title="Review & Submit" className="submit-exam-modal" footer={<><Button variant="outline" disabled={submitting} onClick={() => setConfirmOpen(false)}>Continue Reviewing</Button><Button loading={submitting} onClick={confirmSubmit}>Submit Exam</Button></>}>
-      <p>Submit your examination when you are ready. You cannot change answers after submission.</p><div className="submit-summary"><span>Answered<strong>{answeredCount}</strong></span><span>Unanswered<strong>{questions.length - answeredCount}</strong></span><span>Marked for Review<strong>{markedCount}</strong></span></div>{saveError && <p className="auth-error" role="alert">{saveError}</p>}
+    <Modal open={confirmOpen} onClose={() => !submitting && setConfirmOpen(false)} title={t("Review & Submit")} closeLabel={t("Close dialog")} canClose={!submitting} className="submit-exam-modal" footer={<><Button variant="outline" disabled={submitting} onClick={() => setConfirmOpen(false)}>{t('Continue Reviewing')}</Button><Button loading={submitting} onClick={confirmSubmit}>{t('Submit Exam')}</Button></>}>
+      <p>{t('Submit your examination when you are ready. You cannot change answers after submission.')}</p><div className="submit-summary"><span>{t('Answered')}<strong>{answeredCount}</strong></span><span>{t('Unanswered')}<strong>{questions.length - answeredCount}</strong></span><span>{t('Marked for Review')}<strong>{markedCount}</strong></span></div>{saveError && <p className="auth-error" role="alert">{saveError}</p>}
     </Modal>
   </div>
 }

@@ -43,7 +43,7 @@ export function ExamCard({ exam, action, actionLabel, onAction, children, classN
   </Card>
 }
 
-export function QuestionNavigator({ questions, answers, marked, current, onSelect }) {
+export function QuestionNavigator({ questions, answers, marked, current, onSelect, translate = text => text }) {
   function questionState(index) {
     if (index === current) return 'current'
     if (marked.has(index) || questions[index]?.marked_for_review) return 'marked'
@@ -56,14 +56,14 @@ export function QuestionNavigator({ questions, answers, marked, current, onSelec
   }).length
   const counts = { answered: answeredCount, unanswered: questions.length - answeredCount, marked: marked.size }
   return <Card as="section" className="question-navigator" aria-labelledby="question-nav-title">
-    <div className="question-navigator__heading"><div><h2 id="question-nav-title">Question navigator</h2><p>{questions.length} questions</p></div><Icon name="clipboard" /></div>
-    <ul className="question-legend" aria-label="Question status legend"><li><i className="question-dot question-dot--current" />Current</li><li><i className="question-dot question-dot--answered" />Answered</li><li><i className="question-dot question-dot--unanswered" />Unanswered</li><li><i className="question-dot question-dot--marked" />Marked for review</li></ul>
-    <div className="question-number-grid" role="group" aria-label="Go to question">{questions.map((question, index) => <button key={question.id} type="button" className={`question-number question-number--${questionState(index)}${index === current && marked.has(index) ? ' question-number--current-marked' : ''}`} aria-current={index === current ? 'step' : undefined} aria-label={`Question ${index + 1}, ${questionState(index).replace('_', ' ')}${marked.has(index) ? ', marked for review' : ''}`} onClick={() => onSelect(index)}>{String(index + 1).padStart(2, '0')}{marked.has(index) && <span aria-hidden="true">◆</span>}</button>)}</div>
-    <div className="question-navigator__summary"><span>Answered <strong>{counts.answered}</strong></span><span>Unanswered <strong>{counts.unanswered}</strong></span><span>Marked for review <strong>{counts.marked}</strong></span></div>
+    <div className="question-navigator__heading"><div><h2 id="question-nav-title">{translate('Question navigator')}</h2><p>{translate(`${questions.length} questions`)}</p></div><Icon name="clipboard" /></div>
+    <ul className="question-legend" aria-label={translate('Question status legend')}><li><i className="question-dot question-dot--current" />{translate('Current')}</li><li><i className="question-dot question-dot--answered" />{translate('Answered')}</li><li><i className="question-dot question-dot--unanswered" />{translate('Unanswered')}</li><li><i className="question-dot question-dot--marked" />{translate('Marked for review')}</li></ul>
+    <div className="question-number-grid" role="group" aria-label={translate('Go to question')}>{questions.map((question, index) => <button key={question.id} type="button" className={`question-number question-number--${questionState(index)}${index === current && marked.has(index) ? ' question-number--current-marked' : ''}`} aria-current={index === current ? 'step' : undefined} aria-label={translate(`Question ${index + 1}`) + ', ' + translate(questionState(index).replace('_', ' ')) + (marked.has(index) ? ', ' + translate('marked for review') : '')} onClick={() => onSelect(index)}>{String(index + 1).padStart(2, '0')}{marked.has(index) && <span aria-hidden="true">{translate('◆')}</span>}</button>)}</div>
+    <div className="question-navigator__summary"><span>{translate('Answered ')}<strong>{counts.answered}</strong></span><span>{translate('Unanswered ')}<strong>{counts.unanswered}</strong></span><span>{translate('Marked for review ')}<strong>{counts.marked}</strong></span></div>
   </Card>
 }
 
-export function QuestionRenderer({ question, value, onChange }) {
+export function QuestionRenderer({ question, value, onChange, translate = text => text }) {
   const isMultiple = question.type === 'multiple_select'
   const selected = Array.isArray(value) ? value : value ? [value] : []
   function toggle(optionId) {
@@ -71,16 +71,16 @@ export function QuestionRenderer({ question, value, onChange }) {
     onChange(selected.includes(optionId) ? selected.filter(id => id !== optionId) : [...selected, optionId])
   }
   const inputType = isMultiple ? 'checkbox' : 'radio'
-  return <fieldset className="question-renderer"><legend>{question.prompt}</legend><p className="question-renderer__instruction">{isMultiple ? 'Select all that apply.' : question.type === 'true_false' ? 'Choose True or False.' : 'Select one answer.'}</p><div className="answer-options">{question.options.map((option, index) => {
+  return <fieldset className="question-renderer"><legend>{question.prompt}</legend><p className="question-renderer__instruction">{translate(isMultiple ? 'Select all that apply.' : question.type === 'true_false' ? 'Choose True or False.' : 'Select one answer.')}</p><div className="answer-options">{question.options.map((option, index) => {
     const checked = selected.includes(option.id)
-    return <label key={option.id} className={`answer-option${checked ? ' answer-option--selected' : ''}`}><input type={inputType} name={`question-${question.id}`} checked={checked} onChange={() => toggle(option.id)} /><span className="answer-option__letter">{question.type === 'true_false' ? (/^true$/i.test(option.label.trim()) ? 'T' : 'F') : String.fromCharCode(65 + index)}</span><span>{option.label}</span>{checked && <span className="answer-option__selected-label">Selected</span>}</label>
+    return <label key={option.id} className={`answer-option${checked ? ' answer-option--selected' : ''}`}><input type={inputType} name={`question-${question.id}`} checked={checked} onChange={() => toggle(option.id)} /><span className="answer-option__letter">{question.type === 'true_false' ? (/^true$/i.test(option.label.trim()) ? 'T' : 'F') : String.fromCharCode(65 + index)}</span><span>{option.label}</span>{checked && <span className="answer-option__selected-label">{translate('Selected')}</span>}</label>
   })}</div></fieldset>
 }
 
-export function ExamTimer({ seconds }) {
+export function ExamTimer({ seconds, translate = text => text }) {
   const minutes = Math.floor(seconds / 60)
   const remainder = seconds % 60
-  return <div className={`exam-timer${seconds <= 300 ? ' exam-timer--urgent' : ''}`} role="timer" aria-label={`${minutes} minutes ${remainder} seconds remaining`}><Icon name="clock" size={19} /><span>{String(minutes).padStart(2, '0')}:{String(remainder).padStart(2, '0')}</span><small>time remaining</small></div>
+  return <div className={`exam-timer${seconds <= 300 ? ' exam-timer--urgent' : ''}`} role="timer" aria-label={translate(`${minutes} minutes ${remainder} seconds remaining`)}><Icon name="clock" size={19} /><span>{String(minutes).padStart(2, '0')}:{String(remainder).padStart(2, '0')}</span><small>{translate('time remaining')}</small></div>
 }
 
 export function ResultDetails({ result }) {
