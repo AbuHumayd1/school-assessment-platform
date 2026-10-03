@@ -19,6 +19,7 @@ import {
   SignInPage,
 } from './pages/public/PublicPages.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
+import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
 import StudentDashboardPage from './pages/student/StudentDashboardPage.jsx'
 import StudentExamsPage from './pages/student/StudentExamsPage.jsx'
 import StudentExamPage from './pages/student/StudentExamPage.jsx'
@@ -89,7 +90,7 @@ const staffPages = [
 function StaffIndex() {
   const { currentRole } = useWorkspace()
   if (!canAccessStaffCapability(currentRole, 'dashboard')) return <Navigate to="/app/questions" replace />
-  return <PlaceholderPage title="Dashboard" />
+  return <WorkspaceDashboardPage />
 }
 
 function StaffPage({ title, capability }) {

@@ -3,7 +3,7 @@ const administratorRoles = new Set(['platform_admin', 'institution_admin'])
 const submissionRoles = new Set(['platform_admin', 'institution_admin', 'examiner'])
 
 const capabilityRoles = {
-  dashboard: administratorRoles,
+  dashboard: allWorkspaceRoles,
   memberships: administratorRoles,
   institution_settings: administratorRoles,
   candidates: allWorkspaceRoles,

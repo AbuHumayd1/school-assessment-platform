@@ -213,3 +213,46 @@
 @media (min-width: 768px) and (max-width: 1100px) {
   .public-footer__content { grid-template-columns: minmax(14rem, 1.4fr) repeat(3, minmax(6rem, 1fr)); gap: var(--space-6); }
 }
+
+/* Shared Staff shell: constrain each header group before reflowing it. */
+.staff-topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding-block: 1rem; }
+.staff-topbar .institution-context { width: 100%; gap: .35rem; }
+.staff-topbar .institution-context strong, .staff-sidebar__footer > span:last-child { overflow-wrap: anywhere; }
+.staff-topbar .workspace-switcher { width: 100%; min-width: 0; max-width: 32rem; }
+.staff-topbar__actions { min-width: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: .75rem; }
+.staff-topbar__actions > .language-mode-control { flex-wrap: wrap; white-space: normal; font-size: .875rem; }
+.staff-layout .app-navigation__link.is-active::before { margin-left: 0; margin-inline-start: -.75rem; flex-shrink: 0; }
+.staff-sidebar { min-height: 0; overflow-y: auto; }
+.staff-sidebar__footer { flex-shrink: 0; }
+
+@media (min-width: 768px) and (max-width: 1559px) {
+  .staff-topbar { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .staff-topbar__actions { justify-content: flex-start; }
+}
+
+@media (min-width: 768px) and (max-width: 1279px) {
+  .staff-layout { grid-template-columns: 5.5rem minmax(0, 1fr); }
+  .staff-sidebar { align-items: center; padding-inline: var(--space-2); }
+  .staff-sidebar > .wordmark { margin-inline: 0; }
+  .staff-sidebar .wordmark__name, .staff-sidebar__footer { display: none; }
+  .staff-sidebar .app-navigation { width: 100%; }
+  .staff-sidebar .app-navigation__link { position: relative; justify-content: center; padding: 0; }
+  .staff-sidebar .app-navigation__link > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .staff-sidebar .app-navigation__link.is-active::before { position: absolute; left: auto; inset-inline-start: .25rem; margin: 0; }
+  .staff-content { padding: 1.5rem; }
+}
+
+@media (max-width: 767px) {
+  .staff-topbar, .staff-sidebar { display: none; }
+  .staff-mobile-header { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) auto 2.75rem; gap: .75rem .5rem; padding: .75rem 1rem; }
+  .staff-mobile-header > .wordmark { justify-self: start; }
+  .staff-mobile-header > .language-mode-control { grid-column: 3; grid-row: 1; flex-wrap: wrap; min-width: 0; gap: .25rem; font-size: .875rem; white-space: normal; }
+  .staff-mobile-header > .language-mode-control select { max-width: 9rem; width: 100%; min-width: 0; min-height: 2.75rem; }
+  .staff-mobile-header > .account-button { grid-column: 4; grid-row: 1; }
+  .staff-mobile-workspace { grid-column: 1 / -1; grid-row: 2; width: 100%; max-width: none; gap: .4rem; padding-top: .75rem; border-top: 1px solid rgb(255 255 255 / 18%); }
+  .staff-mobile-workspace strong { overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 1rem; }
+  .staff-mobile-workspace select { min-height: 2.75rem; padding: .5rem; border: 1px solid rgb(255 255 255 / 35%); border-radius: var(--radius-small); font-size: 1rem; }
+  .staff-mobile-workspace .institution-context__label, .staff-mobile-workspace .workspace-role-label { color: rgb(255 255 255 / 80%); font-size: .875rem; }
+  .staff-mobile-drawer .app-navigation__link { height: auto; padding-block: .5rem; }
+  .staff-mobile-drawer .app-navigation__link > span { min-width: 0; overflow-wrap: anywhere; }
+}

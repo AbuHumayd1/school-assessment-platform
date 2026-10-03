@@ -426,6 +426,9 @@ class InstitutionDashboardAPITests(Phase6APITestCase):
             "available_assessments": 1,
             "submitted_attempts": 1,
             "published_results": 1,
+            "questions": 0,
+            "assessments": 2,
+            "results": 1,
         })
         self.assertNotIn("email", response.data["institution"])
         self.assertNotIn("other_candidate", response.data)
@@ -449,13 +452,19 @@ class InstitutionDashboardAPITests(Phase6APITestCase):
         response = self.client.get(self.url, **self.institution_context(self.school_b))
         self.assertEqual(response.status_code, 404)
 
-    def test_teacher_cannot_access_dashboard(self):
+    def test_teacher_can_access_dashboard_without_management_counts(self):
         self.authenticate_as(self.teacher)
-        self.assertEqual(self.client.get(self.url).status_code, 403)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("active_members", response.data["counts"])
+        self.assertNotIn("submitted_attempts", response.data["counts"])
 
-    def test_examiner_cannot_access_dashboard(self):
+    def test_examiner_can_access_dashboard_without_membership_counts(self):
         self.authenticate_as(self.examiner)
-        self.assertEqual(self.client.get(self.url).status_code, 403)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("active_members", response.data["counts"])
+        self.assertEqual(response.data["counts"]["submitted_attempts"], 0)
 
     def test_student_cannot_access_dashboard(self):
         self.authenticate_as(self.student)

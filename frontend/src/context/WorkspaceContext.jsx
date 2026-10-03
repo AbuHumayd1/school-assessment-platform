@@ -30,6 +30,7 @@ export function WorkspaceProvider({ children }) {
   const [workspaces, setWorkspaces] = useState([])
   const [currentWorkspace, setCurrentWorkspace] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [resolvedUserId, setResolvedUserId] = useState(null)
   const [error, setError] = useState(null)
   const [retryKey, setRetryKey] = useState(0)
   const previousUserId = useRef(null)
@@ -49,6 +50,7 @@ export function WorkspaceProvider({ children }) {
     setWorkspaces([])
     setCurrentWorkspace(null)
     setError(null)
+    setResolvedUserId(null)
 
     if (!userId) {
       if (previousUserId.current != null) writeStoredWorkspace(previousUserId.current, null)
@@ -83,7 +85,10 @@ export function WorkspaceProvider({ children }) {
       } catch (requestError) {
         if (!cancelled) setError(requestError)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setResolvedUserId(userId)
+          setLoading(false)
+        }
       }
     }
 
@@ -106,17 +111,18 @@ export function WorkspaceProvider({ children }) {
     if (user?.id) writeStoredWorkspace(user.id, null)
   }, [user?.id])
 
+  const contextLoading = authLoading || loading || (user?.id ?? null) !== resolvedUserId
   const value = useMemo(() => ({
     workspaces,
     currentWorkspace,
     currentRole: currentWorkspace?.role ?? null,
-    loading: authLoading || loading,
+    loading: contextLoading,
     error,
-    accessState: loading || authLoading ? 'loading' : error ? 'error' : workspaces.length === 0 ? 'no_workspace' : currentWorkspace ? 'ready' : 'select_workspace',
+    accessState: contextLoading ? 'loading' : error ? 'error' : workspaces.length === 0 ? 'no_workspace' : currentWorkspace ? 'ready' : 'select_workspace',
     selectWorkspace,
     clearSelection,
     retry,
-  }), [workspaces, currentWorkspace, authLoading, loading, error, selectWorkspace, clearSelection, retry])
+  }), [workspaces, currentWorkspace, contextLoading, error, selectWorkspace, clearSelection, retry])
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
 }

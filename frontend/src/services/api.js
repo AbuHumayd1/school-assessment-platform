@@ -7,6 +7,11 @@ export function setInstitutionContext(institutionId) {
   institutionContextId = institutionId == null ? null : String(institutionId)
 }
 
+export function clearSessionContext() {
+  csrfToken = null
+  institutionContextId = null
+}
+
 export class ApiError extends Error {
   constructor(message, { status, data } = {}) {
     super(message)

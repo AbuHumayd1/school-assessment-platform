@@ -1,0 +1,23 @@
+.account-menu { position: relative; min-width: 0; flex-shrink: 0; }
+.account-menu > summary { list-style: none; }
+.account-menu > summary::-webkit-details-marker { display: none; }
+.account-menu > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.account-menu__panel { position: absolute; z-index: 90; inset-inline-end: 0; inset-block-start: calc(100% + .5rem); width: min(19rem, calc(100vw - 2rem)); padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-medium); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-menu); overflow-wrap: anywhere; }
+.account-menu__panel p { margin: .35rem 0 1rem; color: var(--color-muted); font-size: .875rem; }
+.account-signout > p { margin-top: .75rem; color: var(--color-error); font-size: .875rem; }
+.account-access-panel { max-width: 40rem; margin: 2rem auto; padding: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-large); background: var(--gradient-card-soft-indigo); }
+.account-access-panel h1 { color: var(--color-brand-dark); font-size: 1.5rem; }
+.account-access-panel > .language-mode-control { display: flex; flex-wrap: wrap; justify-content: flex-end; }
+.account-access-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: 1.25rem; }
+.account-access-actions .button { white-space: normal; text-align: center; }
+.staff-mobile-header > .account-menu { grid-column: 4; grid-row: 1; }
+@media (max-width: 1023px) {
+  .student-topbar .account-menu .account-button { width: 2.75rem; padding: 0; justify-content: center; }
+  .student-topbar .account-menu .account-button__label, .student-topbar .account-menu .account-button > svg:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+}
+@media (max-width: 767px) {
+  .student-topbar > .wordmark .wordmark__name { display: none; }
+  .student-topbar__actions { min-width: 0; }
+  .student-topbar__actions > .language-mode-control { flex-direction: column; align-items: stretch; min-width: 0; max-width: 9rem; white-space: normal; }
+  .student-topbar__actions > .language-mode-control select { width: 100%; min-width: 0; max-width: 100%; }
+}

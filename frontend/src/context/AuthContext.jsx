@@ -1,25 +1,30 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { apiFetch, setInstitutionContext } from '../services/api.js'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { apiFetch, clearSessionContext, setInstitutionContext } from '../services/api.js'
+import { endSession } from '../services/session.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const sessionVersion = useRef(0)
 
   const refreshUser = useCallback(async () => {
+    const version = sessionVersion.current
     setLoading(true)
     try {
       const currentUser = await apiFetch('auth/me/')
+      if (version !== sessionVersion.current) return null
       setUser(currentUser?.authenticated === false ? null : currentUser)
       return currentUser
     } catch (error) {
+      if (version !== sessionVersion.current) return null
       setInstitutionContext(null)
       if (error.status === 401) setUser(null)
       else setUser(null)
       return null
     } finally {
-      setLoading(false)
+      if (version === sessionVersion.current) setLoading(false)
     }
   }, [])
 
@@ -28,18 +33,20 @@ export function AuthProvider({ children }) {
   const signIn = useCallback(async (credentials) => {
     const data = await apiFetch('auth/login/', { method: 'POST', body: credentials })
     if (!data?.user || typeof data.user.id !== 'number') throw new Error('The server returned an unexpected sign-in response.')
+    sessionVersion.current += 1
+    setLoading(false)
     setInstitutionContext(null)
     setUser(data.user)
     return data.user
   }, [])
 
   const signOut = useCallback(async () => {
-    try {
-      await apiFetch('auth/logout/', { method: 'POST' })
-    } finally {
-      setInstitutionContext(null)
+    await endSession(apiFetch, () => {
+      sessionVersion.current += 1
+      clearSessionContext()
       setUser(null)
-    }
+      setLoading(false)
+    })
   }, [])
 
   const value = useMemo(() => ({ user, loading, refreshUser, signIn, signOut }), [user, loading, refreshUser, signIn, signOut])

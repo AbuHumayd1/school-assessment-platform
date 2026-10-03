@@ -4,6 +4,7 @@ import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
 import LogoWordmark from '../components/common/LogoWordmark.jsx'
 import LanguageModeControl from '../components/common/LanguageModeControl.jsx'
+import AccountMenu from '../components/common/AccountMenu.jsx'
 import { useLanguageMode } from '../context/LanguageModeContext.jsx'
 import { useWorkspace } from '../context/WorkspaceContext.jsx'
 import { canAccessStaffCapability } from '../utils/staffCapabilities.js'
@@ -46,10 +47,6 @@ function StaffNavigation({ onNavigate }) {
   )
 }
 
-function AccountButton() {
-  return <button className="account-button" type="button" aria-label="Account menu"><span className="account-avatar"><Icon name="user" size={18} /></span><span className="account-button__label">Account</span><Icon name="chevron" size={16} /></button>
-}
-
 export default function StaffLayout() {
   const { direction } = useLanguageMode()
   const { label: localizedLabel } = useLanguageMode()
@@ -71,7 +68,7 @@ export default function StaffLayout() {
         <div className="staff-sidebar__footer"><span className="sidebar-context-dot" /><span>{currentWorkspace?.institution.name}</span></div>
       </aside>
 
-      <Drawer open={menuOpen} onClose={closeMenu} title="Navigation" className="staff-mobile-drawer">
+      <Drawer open={menuOpen} onClose={closeMenu} title="Navigation" side={direction === 'rtl' ? 'right' : 'left'} className="staff-mobile-drawer">
         <StaffNavigation onNavigate={closeMenu} />
         <LanguageModeControl />
       </Drawer>
@@ -81,14 +78,16 @@ export default function StaffLayout() {
           <button className="icon-button mobile-menu-button" type="button" aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
           <LogoWordmark light compact to="/app" />
           <div className="staff-mobile-workspace">
+            <span className="institution-context__label">{localizedLabel('Current workspace', 'مساحة العمل الحالية')}</span>
             {workspaces.length > 1 ? (
               <select aria-label="Select workspace" value={currentWorkspace?.institution.id || ''} onChange={event => selectWorkspace(event.target.value)}>
                 {workspaces.map(item => <option key={item.institution.id} value={item.institution.id}>{item.institution.name}</option>)}
               </select>
             ) : <strong>{currentWorkspace?.institution.name}</strong>}
+            <span className="workspace-role-label">{localizedLabel(roleLabels[currentRole] || currentRole, roleArabicTranslations[currentRole] || currentRole)}</span>
           </div>
           <LanguageModeControl />
-          <AccountButton />
+          <AccountMenu />
         </header>
 
         <header className="staff-topbar">
@@ -99,12 +98,12 @@ export default function StaffLayout() {
                 {workspaces.map(item => <option key={item.institution.id} value={item.institution.id}>{item.institution.name} · {localizedLabel(roleLabels[item.role] || item.role, roleArabicTranslations[item.role] || item.role)}</option>)}
               </select>
             ) : <strong>{currentWorkspace?.institution.name}</strong>}
+            <span className="workspace-role-label">{localizedLabel(roleLabels[currentRole] || currentRole, roleArabicTranslations[currentRole] || currentRole)}</span>
           </div>
           <div className="staff-topbar__actions">
-            <span className="workspace-role-label">{localizedLabel(roleLabels[currentRole] || currentRole, roleArabicTranslations[currentRole] || currentRole)}</span>
             <LanguageModeControl />
             <button className="icon-button notification-button" type="button" aria-label="Notifications"><Icon name="bell" /><span className="notification-dot" /></button>
-            <AccountButton />
+            <AccountMenu />
           </div>
         </header>
 
