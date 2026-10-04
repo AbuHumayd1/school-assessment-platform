@@ -1,3 +1,4 @@
+import QuestionMedia from '../../components/common/QuestionMedia.jsx'
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useWorkspace } from '../../context/WorkspaceContext.jsx'
@@ -20,7 +21,7 @@ export function ExamOverview({ exam, t }) {
   ]} /></div>
 }
 export function QuestionInspection({ rows, t }) {
-  return <div className="exam-panel">{!rows.length && <p>{t('No questions attached')}</p>}{rows.map(row => <article className="exam-question" key={row.id}><h3>{t('Question')} {row.order} &middot; {row.marks} {t('marks')}</h3><p><bdi>{row.question.text}</bdi></p><p>{t(row.question.question_type)} &middot; {t(row.question.difficulty)} &middot; {t(row.question.status)}{row.question.topic_name && <> &middot; <bdi>{row.question.topic_name}</bdi></>}</p><ol>{row.question.options.map(option => <li key={option.id} className={option.is_correct ? 'exam-correct' : ''}><bdi>{option.text}</bdi>{option.is_correct && <> &middot; {t('Correct answer')}</>}</li>)}</ol>{row.question.explanation && <><h4>{t('Explanation')}</h4><p><bdi>{row.question.explanation}</bdi></p></>}</article>)}</div>
+  return <div className="exam-panel">{!rows.length && <p>{t('No questions attached')}</p>}{rows.map(row => <article className="exam-question" key={row.id}><h3>{t('Question')} {row.order} &middot; {row.marks} {t('marks')}</h3><p style={{ whiteSpace: 'pre-wrap' }}><bdi>{row.question.text}</bdi></p><QuestionMedia media={row.question.media} /><p>{t(row.question.question_type)} &middot; {t(row.question.difficulty)} &middot; {t(row.question.status)}{row.question.topic_name && <> &middot; <bdi>{row.question.topic_name}</bdi></>}</p><ol>{row.question.options.map(option => <li key={option.id} className={option.is_correct ? 'exam-correct' : ''}><bdi>{option.text}</bdi>{option.is_correct && <> &middot; {t('Correct answer')}</>}</li>)}</ol>{row.question.explanation && <><h4>{t('Explanation')}</h4><p><bdi>{row.question.explanation}</bdi></p></>}</article>)}</div>
 }
 function QuestionsSection({ institutionId, id, t }) {
   const state = useOwnerRead(`${institutionId}:${id}:questions`, signal => examRequest(institutionId, `${id}/question-inspection/`, { signal }))

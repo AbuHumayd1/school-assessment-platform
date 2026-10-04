@@ -431,6 +431,8 @@ export default function StudentExamPage({ api = portalRunner, translate = identi
     id: question.id,
     type: question.question.question_type,
     prompt: question.question.text,
+    media: question.question.media,
+    mediaMode: api.mode,
     options: question.options.map(option => ({ id: option.id, label: option.text })),
   } : null
   const statusLabel = saveState[current] === 'saving' ? 'Saving answer…' : saveState[current] === 'error' ? 'Answer not saved' : 'All changes saved'

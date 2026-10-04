@@ -22,6 +22,7 @@ import { QuickExamLayout, QuickEntryPage, QuickInstructionsPage, QuickAttemptPag
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
 import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
 import ExamsPage from './pages/staff/ExamsPage.jsx'
+import QuestionsPage from './pages/staff/QuestionsPage.jsx'
 import ExamDetailPage from './pages/staff/ExamDetailPage.jsx'
 import ExamFormPage from './pages/staff/ExamFormPage.jsx'
 import CandidatesPage from './pages/staff/CandidatesPage.jsx'
@@ -83,7 +84,6 @@ const staffPages = [
   ['staff', 'Teachers & Staff', 'memberships'],
   ['classes', 'Classes / Cohorts', 'groups'],
   ['subjects', 'Subjects', 'subjects'],
-  ['questions', 'Questions', 'questions'],
   ['submissions', 'Submissions', 'submissions'],
   ['results', 'Results', 'results'],
   ['reports', 'Reports', 'reports'],
@@ -130,6 +130,8 @@ export default function App() {
         <Route path="app" element={<RequireWorkspace><StaffLayout /></RequireWorkspace>}>
           <Route index element={<StaffIndex />} />
           <Route path="exams" element={<ExamsPage />} />
+          <Route path="questions" element={<QuestionsPage />} />
+          <Route path="questions/import/word/:sessionId" element={<QuestionsPage />} />
           <Route path="exams/new" element={<ExamFormPage />} />
           <Route path="exams/:assessmentId" element={<ExamDetailPage />} />
           <Route path="exams/:assessmentId/edit" element={<ExamFormPage />} />

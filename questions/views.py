@@ -76,7 +76,9 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
         queryset = Question.objects.filter(
             institution_id__in=institution_ids_for_question_bank(self.request.user),
             institution__is_active=True,
-        ).select_related("institution", "subject", "topic", "created_by", "reviewed_by").prefetch_related("options")
+        ).select_related("institution", "subject", "topic", "created_by", "reviewed_by").prefetch_related("options", "media")
+        if self.request.headers.get('X-Institution-ID') or self.request.query_params.get('institution'):
+            queryset = queryset.filter(institution=self.get_write_institution())
         for field in ("subject", "topic"):
             value = self.request.query_params.get(field)
             if value:

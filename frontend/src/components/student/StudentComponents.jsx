@@ -1,3 +1,4 @@
+import QuestionMedia from '../common/QuestionMedia.jsx'
 import { useId } from 'react'
 import Badge from '../common/Badge.jsx'
 import Button from '../common/Button.jsx'
@@ -71,9 +72,9 @@ export function QuestionRenderer({ question, value, onChange, translate = text =
     onChange(selected.includes(optionId) ? selected.filter(id => id !== optionId) : [...selected, optionId])
   }
   const inputType = isMultiple ? 'checkbox' : 'radio'
-  return <fieldset className="question-renderer"><legend>{question.prompt}</legend><p className="question-renderer__instruction">{translate(isMultiple ? 'Select all that apply.' : question.type === 'true_false' ? 'Choose True or False.' : 'Select one answer.')}</p><div className="answer-options">{question.options.map((option, index) => {
+  return <fieldset className="question-renderer"><legend dir="auto" style={{ whiteSpace: 'pre-wrap' }}>{question.prompt}</legend><QuestionMedia media={question.media} mode={question.mediaMode} /><p className="question-renderer__instruction">{translate(isMultiple ? 'Select all that apply.' : question.type === 'true_false' ? 'Choose True or False.' : 'Select one answer.')}</p><div className="answer-options">{question.options.map((option, index) => {
     const checked = selected.includes(option.id)
-    return <label key={option.id} className={`answer-option${checked ? ' answer-option--selected' : ''}`}><input type={inputType} name={`question-${question.id}`} checked={checked} onChange={() => toggle(option.id)} /><span className="answer-option__letter">{question.type === 'true_false' ? (/^true$/i.test(option.label.trim()) ? 'T' : 'F') : String.fromCharCode(65 + index)}</span><span>{option.label}</span>{checked && <span className="answer-option__selected-label">{translate('Selected')}</span>}</label>
+    return <label key={option.id} className={`answer-option${checked ? ' answer-option--selected' : ''}`}><input type={inputType} name={`question-${question.id}`} checked={checked} onChange={() => toggle(option.id)} /><span className="answer-option__letter">{question.type === 'true_false' ? (/^true$/i.test(option.label.trim()) ? 'T' : 'F') : String.fromCharCode(65 + index)}</span><span dir="auto" style={{ whiteSpace: 'pre-wrap' }}>{option.label}</span>{checked && <span className="answer-option__selected-label">{translate('Selected')}</span>}</label>
   })}</div></fieldset>
 }
 

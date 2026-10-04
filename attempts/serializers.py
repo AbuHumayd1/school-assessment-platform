@@ -68,10 +68,12 @@ class CandidateExamQuestionSerializer(serializers.ModelSerializer):
 
     def get_question(self, obj):
         # Explicit candidate allowlist: no answer key, explanation, marks, or authoring metadata.
+        from questions.docx_views import media_representation
         return {
             "id": obj.question_id,
             "text": obj.question.text,
             "question_type": obj.question.question_type,
+            "media": media_representation(obj.question),
         }
 
     def get_selected_options(self, obj):

@@ -167,7 +167,7 @@ class OwnerControlTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(set(response.data), {"title", "duration_minutes", "randomize_questions", "randomize_options", "questions"})
         question = response.data["questions"][0]
-        self.assertEqual(set(question), {"id", "prompt", "type", "options", "order", "marks"})
+        self.assertEqual(set(question), {"id", "prompt", "type", "options", "media", "order", "marks"})
         self.assertEqual(set(question["options"][0]), {"id", "label", "order"})
         self.assertNotIn("is_correct", json.dumps(response.data))
         self.assertNotIn("explanation", json.dumps(response.data))

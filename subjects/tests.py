@@ -1,6 +1,9 @@
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from rest_framework.test import APITestCase
+from accounts.models import User
 from institutions.models import Institution
+from tenants.models import InstitutionMembership
 from .models import Subject
 
 class SubjectTests(TestCase):
@@ -11,3 +14,43 @@ class SubjectTests(TestCase):
         Subject.objects.create(institution=other, name="Math", code="MATH")
         with self.assertRaises(IntegrityError), transaction.atomic():
             Subject.objects.create(institution=school, name="Duplicate", code="MATH")
+
+
+class SubjectAPITests(APITestCase):
+    def setUp(self):
+        self.a = Institution.objects.create(name='Subject tenant A')
+        self.b = Institution.objects.create(name='Subject tenant B')
+        self.user = User.objects.create_user('subject-api@example.test', 'safe password')
+        InstitutionMembership.objects.create(user=self.user, institution=self.a, role='teacher')
+        self.client.force_authenticate(self.user)
+
+    def test_creation_and_duplicate_code_return_normal_validation(self):
+        fields = {'institution': self.a.pk, 'name': 'Test subject', 'code': 'CODE'}
+        created = self.client.post('/api/v1/subjects/', fields, format='json')
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.data['institution'], self.a.pk)
+        duplicate = self.client.post('/api/v1/subjects/', fields, format='json')
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertIn('already exists', str(duplicate.data['code']))
+        invalid = self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': '', 'code': ''}, format='json')
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn('name', invalid.data); self.assertIn('code', invalid.data)
+        self.assertEqual(Subject.objects.count(), 1)
+
+    def test_foreign_creation_and_nonstaff_access_remain_rejected(self):
+        Subject.objects.create(institution=self.b, name='Private foreign subject', code='PRIVATE')
+        denied = self.client.post('/api/v1/subjects/', {'institution': self.b.pk, 'name': 'Wrong tenant', 'code': 'WRONG'}, format='json')
+        self.assertEqual(denied.status_code, 400)
+        listed = self.client.get('/api/v1/subjects/')
+        self.assertEqual(listed.data['results'] if isinstance(listed.data, dict) else listed.data, [])
+        InstitutionMembership.objects.filter(user=self.user).update(role='student')
+        self.assertEqual(self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': 'Denied', 'code': 'DENIED'}, format='json').status_code, 403)
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': 'Denied', 'code': 'DENIED'}, format='json').status_code, 403)
+        self.assertEqual(Subject.objects.count(), 1)
+
+    def test_duplicate_scope_is_per_institution(self):
+        Subject.objects.create(institution=self.b, name='Foreign same code', code='SHARED')
+        created = self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': 'Own same code', 'code': 'SHARED'}, format='json')
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(Subject.objects.count(), 2)

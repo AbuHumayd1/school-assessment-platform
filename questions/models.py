@@ -1,4 +1,5 @@
 from decimal import Decimal
+import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -69,6 +70,7 @@ class Question(models.Model):
     explanation = models.TextField(blank=True)
     marks = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal("1.00"), validators=[MinValueValidator(Decimal("0.01"))])
     source = models.TextField(blank=True)
+    source_metadata = models.JSONField(default=dict, blank=True)
     source_year = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(9999)])
     learning_objective = models.TextField(blank=True)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
@@ -91,7 +93,7 @@ class Question(models.Model):
             AttemptQuestion = apps.get_model("attempts", "AttemptQuestion")
             if AttemptQuestion.objects.filter(question_id=self.pk).exists():
                 original = type(self).objects.get(pk=self.pk)
-                protected = ("institution_id", "subject_id", "topic_id", "question_type", "text", "explanation", "difficulty", "marks", "source", "source_year", "learning_objective")
+                protected = ("institution_id", "subject_id", "topic_id", "question_type", "text", "explanation", "difficulty", "marks", "source", "source_metadata", "source_year", "learning_objective")
                 if any(getattr(original, field) != getattr(self, field) for field in protected):
                     errors["text"] = "Question content cannot be edited after it has been used in an attempt."
         if self.subject_id and self.institution_id and self.subject.institution_id != self.institution_id:
@@ -177,3 +179,68 @@ class QuestionOption(models.Model):
 
     def __str__(self):
         return f"Option {self.order} for question {self.question_id}"
+
+
+class DocxImportSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    institution = models.ForeignKey('institutions.Institution', on_delete=models.CASCADE)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    preview = models.JSONField(default=dict)
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    revision = models.PositiveIntegerField(default=0)
+
+
+from .private_storage import private_storage
+
+
+def question_media_path(instance, filename):
+    return f'{uuid.uuid4().hex}/{uuid.uuid4().hex}.dat'
+
+
+def cascade_private_media(collector, field, sub_objects, using):
+    # MySQL cannot defer constraints. Standard nullable CASCADE clears the FK first,
+    # violating single ownership. Record a strict child-before-parent dependency instead.
+    collector.collect(sub_objects, source=field.remote_field.model, source_attr=field.name,
+                      nullable=False, fail_on_restricted=False)
+
+
+class QuestionMedia(models.Model):
+    # An asset is promoted from a temporary session to a normal question without copying binaries.
+    # A future stimulus may own this same asset model rather than duplicating files per question/attempt.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    question = models.ForeignKey(Question, null=True, blank=True, on_delete=cascade_private_media, related_name='media')
+    import_session = models.ForeignKey(DocxImportSession, null=True, blank=True, on_delete=cascade_private_media, related_name='media')
+    parsed_id = models.CharField(max_length=40)
+    media_type = models.CharField(max_length=20, default='image')
+    file = models.FileField(storage=private_storage, upload_to=question_media_path)
+    alt_text = models.CharField(max_length=300, blank=True)
+    caption = models.CharField(max_length=500, blank=True)
+    order = models.PositiveSmallIntegerField(default=1)
+    source_metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('order', 'id')
+        constraints = [models.CheckConstraint(condition=(models.Q(question__isnull=False, import_session__isnull=True) | models.Q(question__isnull=True, import_session__isnull=False)), name='question_media_single_owner')]
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.question_id:
+            from attempts.models import AttemptQuestion
+            Question.objects.select_for_update().get(pk=self.question_id)
+            if AttemptQuestion.objects.filter(question_id=self.question_id).exists():
+                raise ValidationError('Question media is immutable after an attempt starts.')
+        return super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        if self.question_id:
+            from attempts.models import AttemptQuestion
+            Question.objects.select_for_update().get(pk=self.question_id)
+            if AttemptQuestion.objects.filter(question_id=self.question_id).exists():
+                raise ValidationError('Question media is immutable after an attempt starts.')
+        return super().delete(*args, **kwargs)

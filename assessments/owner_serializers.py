@@ -13,10 +13,15 @@ class InspectionOptionSerializer(serializers.ModelSerializer):
 class InspectionQuestionSerializer(serializers.ModelSerializer):
     options = InspectionOptionSerializer(many=True, read_only=True)
     topic_name = serializers.CharField(source="topic.name", read_only=True, default=None)
+    media = serializers.SerializerMethodField()
+
+    def get_media(self, obj):
+        from questions.docx_views import media_representation
+        return media_representation(obj)
 
     class Meta:
         model = Question
-        fields = ("id", "text", "question_type", "options", "explanation", "topic", "topic_name", "difficulty", "status")
+        fields = ("id", "text", "question_type", "options", "media", "explanation", "topic", "topic_name", "difficulty", "status")
         read_only_fields = fields
 
 
@@ -43,8 +48,13 @@ class PreviewQuestionSerializer(serializers.ModelSerializer):
     prompt = serializers.CharField(source="question.text", read_only=True)
     type = serializers.CharField(source="question.question_type", read_only=True)
     options = PreviewOptionSerializer(source="question.options", many=True, read_only=True)
+    media = serializers.SerializerMethodField()
+
+    def get_media(self, obj):
+        from questions.docx_views import media_representation
+        return media_representation(obj.question)
 
     class Meta:
         model = AssessmentQuestion
-        fields = ("id", "prompt", "type", "options", "order", "marks")
+        fields = ("id", "prompt", "type", "options", "media", "order", "marks")
         read_only_fields = fields

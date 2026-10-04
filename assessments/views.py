@@ -106,7 +106,7 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         instance.delete()
 
     def paper(self, assessment):
-        return assessment.assessment_questions.select_related("question__topic").prefetch_related("question__options").order_by("order", "id")
+        return assessment.assessment_questions.select_related("question__topic").prefetch_related("question__options", "question__media").order_by("order", "id")
 
     @action(detail=True, methods=["get"], url_path="question-inspection")
     def question_inspection(self, request, pk=None):
@@ -143,7 +143,7 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         if not subject.isdecimal() or int(subject) < 1:
             raise ValidationError({"subject": "Select a valid subject."})
         subject = get_object_or_404(Subject, pk=subject, institution=self.institution())
-        questions = Question.objects.filter(institution=self.institution(), subject=subject, status=Question.Status.APPROVED).select_related("topic").prefetch_related("options").order_by("pk")
+        questions = Question.objects.filter(institution=self.institution(), subject=subject, status=Question.Status.APPROVED).select_related("topic").prefetch_related("options", "media").order_by("pk")
         search = request.query_params.get("search", "").strip()[:200]
         if search:
             questions = questions.filter(text__icontains=search)

@@ -1,5 +1,6 @@
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from tenants.permissions import CanManageSubjects
 from tenants.querysets import institutions_for_user, can_manage_institution
 from .models import Subject
@@ -13,7 +14,18 @@ class SubjectViewSet(viewsets.ModelViewSet):
         institution_id = self.request.data.get("institution")
         if not institution_id or not can_manage_institution(self.request.user, institution_id, ["institution_admin", "teacher", "examiner"]):
             raise ValidationError({"institution": "Choose an institution you are authorized to manage."})
-        serializer.save(institution_id=institution_id)
+        code = serializer.validated_data["code"]
+        duplicate_error = {"code": "A subject with this code already exists in this institution."}
+        if Subject.objects.filter(institution_id=institution_id, code=code).exists():
+            raise ValidationError(duplicate_error)
+        try:
+            with transaction.atomic():
+                serializer.save(institution_id=institution_id)
+        except IntegrityError:
+            # Retain the database constraint as the authority for concurrent creates.
+            if Subject.objects.filter(institution_id=institution_id, code=code).exists():
+                raise ValidationError(duplicate_error)
+            raise
     def perform_update(self, serializer):
         if "institution" in self.request.data and str(self.request.data["institution"]) != str(serializer.instance.institution_id):
             raise ValidationError({"institution": "Subjects cannot be moved between institutions through this API."})

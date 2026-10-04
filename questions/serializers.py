@@ -77,6 +77,12 @@ class QuestionSerializer(serializers.ModelSerializer):
     reviewed_by = serializers.PrimaryKeyRelatedField(read_only=True)
     status = serializers.ChoiceField(choices=Question.Status.choices, read_only=True)
     options = QuestionOptionSerializer(many=True)
+    media = serializers.SerializerMethodField()
+    source_metadata = serializers.JSONField(read_only=True)
+
+    def get_media(self, obj):
+        from .docx_views import media_representation
+        return media_representation(obj)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -89,7 +95,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         fields = (
             "id", "institution", "subject", "topic", "question_type", "difficulty", "text", "explanation",
             "marks", "source", "source_year", "learning_objective", "status", "created_by", "reviewed_by",
-            "options", "created_at", "updated_at",
+            "options", "media", "source_metadata", "created_at", "updated_at",
         )
         read_only_fields = ("id", "institution", "status", "created_by", "reviewed_by", "created_at", "updated_at")
 
