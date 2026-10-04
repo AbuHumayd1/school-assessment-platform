@@ -22,3 +22,7 @@
 .question-media figure { margin:1rem 0; }.question-media img { max-width:100%; height:auto; }
 .import-option { display:flex; gap:.5rem; align-items:center; }.import-option label { flex:1; min-width:0; }
 @media(max-width:700px) { .import-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }.import-option { flex-wrap:wrap; }.import-option label { flex-basis:100%; }.import-metadata label { flex:1 1 100%; }.import-actions button { flex:1 1 auto; } }
+
+.bank-filters{display:flex;flex-wrap:wrap;gap:1rem;margin-block:1rem}.bank-filters label{display:flex;flex-direction:column;gap:.4rem;flex:1 1 180px;min-width:0}.bank-filters select,.bank-filters input{max-width:100%;width:100%;box-sizing:border-box}.bank-subject,.bank-section{margin-block:1.5rem;min-width:0}.bank-directions{white-space:pre-wrap;overflow-wrap:anywhere;padding:1rem;background:#f3f5f8;border-inline-start:3px solid #3158a6}.source-number{font-weight:700;margin-inline-end:.5rem}.structured-bank summary,.structured-bank h2,.structured-bank h3{overflow-wrap:anywhere}@media(max-width:700px){.bank-filters{flex-direction:column}.bank-filters label{flex:auto}}
+
+.structured-bank dd{margin-inline-start:1rem;overflow-wrap:anywhere}

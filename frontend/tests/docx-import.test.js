@@ -6,7 +6,7 @@ import { createServer } from 'vite'
 import { readFile } from 'node:fs/promises'
 
 const server = await createServer({ server:{middlewareMode:true,hmr:false},appType:'custom',optimizeDeps:{noDiscovery:true,include:[]} })
-const { ImportSummary, ImportReview, ImportReviewContent, ReviewQuestion, canConfirmImport, filterImportQuestions, initialReviewNavigation, reviewNavigationReducer, importReviewPage, ImportConfirmation, importConfirmationCounts, importError, SubjectSelector, CreateSubjectForm, createImportSubject, subjectCreationError } = await server.ssrLoadModule('/src/pages/staff/QuestionsPage.jsx')
+const { QuestionBank, questionBankGroups, loadBankQuestions, CompletedImport, ImportSummary, ImportReview, ImportReviewContent, ReviewQuestion, canConfirmImport, filterImportQuestions, initialReviewNavigation, reviewNavigationReducer, importReviewPage, ImportConfirmation, importConfirmationCounts, importError, SubjectSelector, CreateSubjectForm, createImportSubject, subjectCreationError } = await server.ssrLoadModule('/src/pages/staff/QuestionsPage.jsx')
 const { default:QuestionMedia } = await server.ssrLoadModule('/src/components/common/QuestionMedia.jsx')
 const { LanguageModeProvider } = await server.ssrLoadModule('/src/context/LanguageModeContext.jsx')
 const { default:QuestionsPage } = await server.ssrLoadModule('/src/pages/staff/QuestionsPage.jsx')
@@ -241,7 +241,7 @@ test('expired retrieval has explicit localized error and completed reload cannot
  assert.match(source,/This import session is unavailable/)
  const recovery=source.slice(source.indexOf('if (sessionId) staffApiFetch'),source.indexOf('function returnToBank'))
  assert.doesNotMatch(recovery,/method:.*POST|confirm\//)
- assert.match(source,/setSuccess\(data.imported_count/)
+ assert.match(source,/setSuccess\(data\)/)
 })
 
 
@@ -301,4 +301,36 @@ test('review expiry uses actual persisted deadline and explains saved changes wi
  const markup=html(ImportReview,{preview:{...preview,expires_at:'2026-10-11T10:00:00Z'},t,busy:false,subjects:[]})
  assert.match(markup,/Saved changes can be resumed until the review session expires/)
  assert.match(markup,/Review session expires/);assert.doesNotMatch(markup,/countdown|seconds remaining/)
+})
+
+const bankItem=(id,section,sectionOrder,documentOrder,number,extras={})=>({id,subject:2,text:`electrode ${id}`,status:'draft',question_type:'multiple_choice',source:'DOCX',options:[{id:1,text:'Answer',is_correct:true}],media:[],source_metadata:{section_title:section,section_order:sectionOrder,document_order:documentOrder,question_number:number,...extras}})
+test('bank groups and orders sections and document positions independently of source numbers',()=>{
+ const items=[bankItem(1,'Later',20,22,1),bankItem(2,'First',1,9,1),bankItem(3,'First',1,3,7)]
+ const groups=questionBankGroups(items)
+ assert.deepEqual(groups.map(g=>g.title),['First','Later'])
+ assert.deepEqual(groups[0].questions.map(q=>q.id),[3,2])
+ const markup=html(QuestionBank,{questions:items,subjects:[{id:2,name:'Mathematics',code:'MATH'}],t})
+ assert.match(markup,/Multiple choice/);assert.match(markup,/Draft/);assert.match(markup,/Mathematics/);assert.match(markup,/MATH/);assert.match(markup,/>Q7</)
+ assert.ok(markup.indexOf('Q7')<markup.indexOf('electrode 3'))
+ assert.equal(items[2].text,'electrode 3')
+})
+test('bank filtering preserves groups and separates document and subject identities',()=>{
+ const items=[bankItem(1,'Same',1,1,1,{import_session_id:'a'}),bankItem(2,'Same',1,2,2,{import_session_id:'b'}),{...bankItem(3,'Same',1,3,3),subject:3},{...bankItem(4,'Same',1,4,4),status:'approved'}]
+ assert.equal(questionBankGroups(items,{subject:2,status:'draft',search:'electrode',section:'Same'}).length,2)
+ assert.equal(questionBankGroups(items,{search:'absent'}).length,0)
+})
+test('manual questions have no fabricated number and section directions render once',()=>{
+ const items=[bankItem(1,'Reading',1,2,1,{section_directions:'Read carefully.'}),bankItem(2,'Reading',1,3,2,{section_directions:'Read carefully.'}),{id:3,subject:2,text:'Manual',status:'draft',question_type:'true_false',options:[],media:[]}]
+ const markup=html(QuestionBank,{questions:items,subjects:[{id:2,name:'English',code:'ENG'}],t})
+ assert.equal((markup.match(/Read carefully\./g)||[]).length,1)
+ assert.match(markup,/Other questions/);assert.match(markup,/Manual/);assert.doesNotMatch(markup,/Qundefined/)
+})
+test('bank consumes every server page and keeps institution context',async()=>{
+ const paths=[]
+ const items=await loadBankQuestions(7,null,async path=>{paths.push(path);return paths.length===1?{results:[{id:1}],next:'http://server/api/v1/questions/?page=2'}:{results:[{id:2}],next:null}})
+ assert.deepEqual(items.map(q=>q.id),[1,2]);assert.match(paths[1],/institution=7/)
+})
+test('completed history renders detected excluded and imported counts',()=>{
+ const markup=html(CompletedImport,{receipt:{original_parsed_count:9,excluded_count:2,imported_count:7},t})
+ assert.match(markup,/9 Questions detected/);assert.match(markup,/2 Excluded/);assert.match(markup,/7 Imported/)
 })

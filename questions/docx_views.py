@@ -131,7 +131,7 @@ class DocxPreviewView(APIView):
         recent = DocxImportSession.objects.filter(institution=institution, uploaded_by=request.user,
             confirmed_at__isnull=True, expires_at__gt=timezone.now()).order_by('-created_at')[:5]
         return private_response(Response({
-            'subjects': list(Subject.objects.filter(institution=institution).order_by('name').values('id','name')),
+            'subjects': list(Subject.objects.filter(institution=institution).order_by('name').values('id','name','code')),
             'recent_imports': [{'import_session_id': str(s.pk), 'created_at': s.created_at,
                 'expires_at': s.expires_at, 'questions_detected': s.preview['summary']['questions_detected'],
                 'subject_id': subject_selection(s)[0], 'subject_name': subject_selection(s)[1]}
@@ -227,20 +227,27 @@ class DocxConfirmView(APIView):
             question = serializer.save()
             question.source_metadata = {'section_title':section['source_title'], 'section_order':section['source_order'],
                 'question_number':q['source_number'], 'document_order':q['source_order'],
-                'equations':[{k:v for k,v in e.items() if k!='source_xml'} for e in q['equations']], 'review_modified':q['modified']}
+                'equations':[{k:v for k,v in e.items() if k!='source_xml'} for e in q['equations']], 'review_modified':q['modified'],
+                'import_session_id': str(session.pk), 'source_document': document.get('source_document', {}),
+                'section_id': section['id'], 'section_directions': section.get('directions', ''),
+                'original_question_type': q.get('original', {}).get('question_type', q['question_type'])}
             question.save(update_fields=['source_metadata'])
             ids.append(question.pk)
             for order, media in enumerate(q['media'],1):
                 asset = session.media.get(parsed_id=media['id'])
                 asset.question, asset.import_session, asset.order = question, None, order
                 asset.save()
-        completion = {'created_question_ids': ids, 'imported_count': len(ids), 'question_status': 'draft'}
+        completion = {'created_question_ids': ids, 'imported_count': len(ids), 'question_status': 'draft',
+            'original_parsed_count': document.get('original_parsed_count', document['summary']['questions_detected']),
+            'included_count': eligibility['included'], 'excluded_count': eligibility['excluded'],
+            'unresolved_count': eligibility['unresolved'], 'blocker_count': len(eligibility['blockers']),
+            'source_document': document.get('source_document', {})}
         session.metadata = {**session.metadata, 'completion': completion}
         session.confirmed_at, session.preview = timezone.now(), {}
         session.save(update_fields=['confirmed_at','preview','metadata'])
         record_event(institution=session.institution, actor=request.user, event_type='question_import', resource=session,
-            metadata={'action':'docx_confirmed','imported_count':len(ids),'excluded_count':document['summary']['questions_detected']-len(ids)})
-        return private_response(Response({'created_question_ids':ids,'imported_count':len(ids),'status':'draft'},status=201))
+            metadata={'action':'docx_confirmed', **{key: value for key, value in completion.items() if key != 'created_question_ids'}})
+        return private_response(Response({**completion,'status':'draft'},status=201))
 
 
 def media_representation(question):

@@ -1,5 +1,6 @@
 """Bounded, non-executing OOXML parser. No database writes or pilot-specific rules."""
 import io
+import hashlib
 import logging
 import posixpath
 import re
@@ -24,7 +25,8 @@ DEFAULT_LIMITS = dict(upload_bytes=10*1024*1024, uncompressed_bytes=40*1024*1024
 KEY = re.compile(r'^(?:key|answers?|answers?\s+key|key\s+answers?)\s*:?[\s]*$', re.I)
 QUESTION = re.compile(r'^\s*(\d+)[.)]\s+(.+)$', re.S)
 OPTION = re.compile(r'^\s*([a-e])[.)]\s*(.*)$', re.I | re.S)
-SECTION = re.compile(r'^\d+\.0\s+\S')
+SECTION = re.compile(r'^(?:\d+\.0\s+\S|SECTION\s*:\s*\S)', re.I)
+DIRECTION = re.compile(r'^(?:directions?|instructions?)\s*:\s*(\S.*)$', re.I | re.S)
 ANSWER = re.compile(r'^\s*(\d+)[.)]?\s+([a-z]|true|false)\s*[.]?\s*$', re.I)
 REVIEW_WARNING = 'Unsupported Word object detected near this question. Review the original document before importing.'
 
@@ -204,7 +206,8 @@ def parse_docx(upload):
             assets, doc = {}, {'sections': [], 'key_errors': [], 'answer_key_entries': 0, 'media_count': 0, 'unsupported_count': 0}
             current, section, key_mode, pending, text_count = None, None, False, [], 0
             def new_section(title, order):
-                result = {'id': f's{len(doc["sections"])+1}', 'source_title': title, 'source_order': order, 'questions': [], 'key_entries': []}
+                if len(title) > 500: raise DocxInputError('Section title size')
+                result = {'id': f's{len(doc["sections"])+1}', 'source_title': title, 'source_order': order, 'questions': [], 'key_entries': [], 'directions': ''}
                 doc['sections'].append(result)
                 return result
             for order, p in enumerate(body, 1):
@@ -247,6 +250,13 @@ def parse_docx(upload):
                     section, current, key_mode = new_section(text, order), None, False
                     pending.extend(media)
                     if unsupported: pending.append({'warning': REVIEW_WARNING})
+                    continue
+                direction = DIRECTION.match(text)
+                if direction and section is not None and current is None and not key_mode and not unsupported and not media and not equations and fmt is None:
+                    value = direction[1].strip()
+                    combined = '\n'.join(filter(None, [section['directions'], value]))
+                    if len(combined) > lim['item_chars']: raise DocxInputError('Directions size')
+                    section['directions'] = combined
                     continue
                 if KEY.match(text):
                     if section is None: doc['key_errors'].append({'source_order': order, 'message': 'Answer key has no preceding section.'})
@@ -334,6 +344,8 @@ def parse_docx(upload):
                 for entry in section['key_entries']:
                     if entry['number'] not in known: doc['key_errors'].append({'source_order': entry['source_order'], 'message': 'Answer references a nonexistent question.'})
             if not doc['sections'] or not any(s['questions'] for s in doc['sections']): raise DocxInputError('No questions')
+            doc['source_document'] = {'filename': posixpath.basename(upload.name.replace('\\', '/'))[:255], 'sha256': hashlib.sha256(data).hexdigest()}
+            doc['original_parsed_count'] = sum(len(s['questions']) for s in doc['sections'])
             return validate_preview(doc), assets
     except (ValueError, zipfile.BadZipFile, zlib.error, ET.ParseError, OSError, RuntimeError, OverflowError, KeyError, RecursionError, NotImplementedError) as error:
         log.warning('DOCX import rejected (%s)', str(error) if isinstance(error, DocxInputError) else type(error).__name__)

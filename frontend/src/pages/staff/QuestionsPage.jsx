@@ -7,6 +7,8 @@ import QuestionMedia from '../../components/common/QuestionMedia.jsx'
 import './question-import.css'
 
 const copy = {
+ 'Source document':'\u0627\u0644\u0645\u0633\u062a\u0646\u062f \u0627\u0644\u0645\u0635\u062f\u0631','Import reference':'\u0645\u0631\u062c\u0639 \u0627\u0644\u0627\u0633\u062a\u064a\u0631\u0627\u062f','Document position':'\u0627\u0644\u0645\u0648\u0636\u0639 \u0641\u064a \u0627\u0644\u0645\u0633\u062a\u0646\u062f',
+ 'All subjects':'\u062c\u0645\u064a\u0639 \u0627\u0644\u0645\u0648\u0627\u062f','Other questions':'\u0623\u0633\u0626\u0644\u0629 \u0623\u062e\u0631\u0649','Imported':'\u0627\u0644\u0645\u0633\u062a\u0648\u0631\u062f\u0629','Draft':'\u0645\u0633\u0648\u062f\u0629','In review':'\u0642\u064a\u062f \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629','Approved':'\u0645\u0639\u062a\u0645\u062f','Archived':'\u0645\u0624\u0631\u0634\u0641','Multiple select':'\u0627\u062e\u062a\u064a\u0627\u0631\u0627\u062a \u0645\u062a\u0639\u062f\u062f\u0629',
   '+ Create new subject': '+ إنشاء مادة جديدة', 'Create new subject': 'إنشاء مادة جديدة',
   'Subject name': 'اسم المادة', 'Subject code': 'رمز المادة', 'Create & Select': 'إنشاء واختيار',
   'New imports can be resumed for 7 days. Save each review change.': 'يمكن استئناف عمليات الاستيراد الجديدة لمدة 7 أيام. احفظ كل تعديل للمراجعة.',
@@ -247,12 +249,58 @@ export function ImportReviewContent({ preview, t, busy, onChange, onConfirm, onC
     <p role="status">{t('Questions')}: {collection.start}–{collection.end} {t('of')} {collection.total}</p>
     {preview.sections.map(s => {
       const items = collection.visible.filter(q => s.questions.includes(q))
-      return items.length > 0 && <section key={s.id}><h3><bdi>{s.source_title}</bdi></h3>{items.map(q => <ReviewQuestion key={`${q.id}:${q.review_revision || 0}`} question={q} t={t} busy={busy} onSave={(question_id,changes) => onChange({question_id,changes})} />)}</section>
+      return items.length > 0 && <section key={s.id}><h3><bdi>{s.source_title}</bdi></h3>{s.directions && <p dir="auto" className="bank-directions">{s.directions}</p>}{items.map(q => <ReviewQuestion key={`${q.id}:${q.review_revision || 0}`} question={q} t={t} busy={busy} onSave={(question_id,changes) => onChange({question_id,changes})} />)}</section>
     })}
     {!collection.total && <p>{t('No questions found')}</p>}
     {collection.total > 0 && <div className="import-actions"><button disabled={collection.page === 0} onClick={() => navigate({ type:'page', page:collection.page - 1 })}>{t('Previous')}</button><span>{t('Page')} {collection.page + 1} {t('of')} {collection.pageCount}</span><button disabled={collection.page + 1 >= collection.pageCount} onClick={() => navigate({ type:'page', page:collection.page + 1 })}>{t('Next')}</button></div>}
   </section>
 }
+
+export async function loadBankQuestions(institutionId, signal, fetcher = staffApiFetch) {
+ let path=`questions/?institution=${institutionId}`, all=[], seen=new Set()
+ while(path){
+  if(seen.has(path))throw new Error('Repeated question page')
+  seen.add(path)
+  const data=await fetcher(path,{signal});all.push(...(Array.isArray(data)?data:data.results))
+  if(!data.next)break
+  const next=new URL(data.next,'http://localhost')
+  if(!next.pathname.endsWith('/api/v1/questions/'))throw new Error('Unexpected question page')
+  next.searchParams.set('institution',institutionId);path=`questions/${next.search}`
+ }
+ return [...new Map(all.map(q=>[q.id,q])).values()]
+}
+export function questionBankGroups(questions,{subject='',status='',search='',section=''}={}){
+ const groups=new Map()
+ for(const q of questions){
+  const m=q.source_metadata||{},title=m.section_title||''
+  if(subject&&String(q.subject)!==String(subject)||status&&q.status!==status||section&&title!==section||search&&!q.text.toLocaleLowerCase().includes(search.toLocaleLowerCase()))continue
+  const document=m.import_session_id||m.source_document?.sha256||`legacy:${q.source||''}`
+  const key=JSON.stringify([q.subject,document,title?m.section_id||[m.section_order,title]:null])
+  if(!groups.has(key))groups.set(key,{key,subject:q.subject,document,title,order:m.section_order??Infinity,filename:m.source_document?.filename||'',directions:[],questions:[]})
+  const g=groups.get(key);g.questions.push(q)
+  if(m.section_directions&&!g.directions.includes(m.section_directions))g.directions.push(m.section_directions)
+ }
+ return [...groups.values()].sort((a,b)=>String(a.subject).localeCompare(String(b.subject),undefined,{numeric:true})||a.document.localeCompare(b.document)||a.order-b.order||a.title.localeCompare(b.title)).map(g=>({...g,questions:g.title?[...g.questions].sort((a,b)=>(a.source_metadata?.document_order??Infinity)-(b.source_metadata?.document_order??Infinity)||a.id-b.id):g.questions}))
+}
+const bankTypes={multiple_choice:'Multiple choice',multiple_select:'Multiple select',true_false:'True / False'}
+const bankStatuses={draft:'Draft',review:'In review',approved:'Approved',archived:'Archived'}
+export function QuestionBank({questions,subjects,t}){
+ const [filters,setFilters]=useState({subject:'',status:'',search:'',section:''})
+ const groups=questionBankGroups(questions,filters)
+ const sections=[...new Set(questions.filter(q=>!filters.subject||String(q.subject)===filters.subject).map(q=>q.source_metadata?.section_title).filter(Boolean))]
+ const change=(key,value)=>setFilters(old=>({...old,[key]:value,...(key==='subject'?{section:''}:{})}))
+ return <section className="structured-bank"><div className="bank-filters">
+ <label>{t('Subject')}<select value={filters.subject} onChange={e=>change('subject',e.target.value)}><option value="">{t('All subjects')}</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name} · {s.code}</option>)}</select></label>
+ <label>{t('Status')}<select value={filters.status} onChange={e=>change('status',e.target.value)}><option value="">{t('All')}</option>{['draft','review','approved','archived'].map(s=><option key={s} value={s}>{t(bankStatuses[s])}</option>)}</select></label>
+ <label>{t('Section title')}<select value={filters.section} onChange={e=>change('section',e.target.value)}><option value="">{t('All sections')}</option>{sections.map(s=><option key={s}>{s}</option>)}</select></label>
+ <label>{t('Search questions')}<input type="search" value={filters.search} onChange={e=>change('search',e.target.value)}/></label></div>
+ <p role="status">{groups.reduce((n,g)=>n+g.questions.length,0)} {t('Questions')}</p>{!groups.length&&<p>{t('No questions found')}</p>}
+ {subjects.filter(s=>groups.some(g=>String(g.subject)===String(s.id))).map(subject=><section key={subject.id} className="bank-subject"><h2><bdi>{subject.name}</bdi></h2><p><bdi>{subject.code}</bdi> · {groups.filter(g=>String(g.subject)===String(subject.id)).reduce((n,g)=>n+g.questions.length,0)} {t('Questions')}</p>
+ {groups.filter(g=>String(g.subject)===String(subject.id)).map(g=><section key={g.key} className="bank-section"><h3><bdi>{g.title||t('Other questions')}</bdi> · {g.questions.length} {t('Questions')}</h3>{g.filename&&<p><bdi>{g.filename}</bdi></p>}{g.directions.map(d=><p key={d} dir="auto" className="bank-directions">{d}</p>)}
+ {g.questions.map(q=><details className="import-question" key={q.id}><summary>{q.source_metadata?.question_number!=null&&<bdi className="source-number">Q{q.source_metadata.question_number}</bdi>} <bdi>{q.text.slice(0,120)}</bdi> · {t(bankTypes[q.question_type] || q.question_type)} · {t(bankStatuses[q.status] || q.status)}</summary><p dir="auto" style={{whiteSpace:'pre-wrap'}}>{q.text}</p><QuestionMedia media={q.media}/><ol>{q.options.map(o=><li key={o.id}><bdi>{o.text}</bdi>{o.is_correct&&<> · {t('Correct answer')}</>}</li>)}</ol><dl><dt>{t('Source document')}</dt><dd><bdi>{g.filename||q.source||'\u2014'}</bdi></dd>{q.source_metadata?.import_session_id && <><dt>{t('Import reference')}</dt><dd><bdi>{q.source_metadata.import_session_id}</bdi></dd></>}{q.source_metadata?.document_order != null && <><dt>{t('Document position')}</dt><dd>{q.source_metadata.document_order}</dd></>}</dl>{q.source_metadata?.equations?.map((e,i)=><p dir="auto" key={i}>{e.representation||t('Equation content requires manual review.')}</p>)}</details>)}
+ </section>)}</section>)}</section>
+}
+export function CompletedImport({receipt,t}){return <p>{receipt.original_parsed_count??'\u2014'} {t('Questions detected')} / {receipt.excluded_count??'\u2014'} {t('Excluded')} / {receipt.imported_count} {t('Imported')}</p>}
 
 export default function QuestionsPage() {
   const { sessionId } = useParams(), navigate = useNavigate()
@@ -262,11 +310,11 @@ export default function QuestionsPage() {
   const subjectRequest = useRef(null)
   useEffect(() => () => subjectRequest.current?.abort(),[institutionId,sessionId])
   const [kind, setKind] = useState(null), [preview, setPreview] = useState(null), [busy,setBusy] = useState(false)
-  const [error,setError] = useState(''), [success,setSuccess] = useState(null), [questions,setQuestions] = useState(null), [subjects,setSubjects] = useState([]), [page,setPage] = useState(0), [revision,setRevision] = useState(0), [recent,setRecent] = useState([]), [loadingSession,setLoadingSession] = useState(!!sessionId)
+  const [error,setError] = useState(''), [success,setSuccess] = useState(null), [questions,setQuestions] = useState(null), [subjects,setSubjects] = useState([]), [revision,setRevision] = useState(0), [recent,setRecent] = useState([]), [loadingSession,setLoadingSession] = useState(!!sessionId)
   useEffect(() => {
     const controller = new AbortController()
-    setSubjects([]);setRecent([])
-    Promise.all([staffApiFetch(`questions/?institution=${institutionId}`,{signal:controller.signal}),staffApiFetch(`questions/import/docx/preview/?institution=${institutionId}`,{signal:controller.signal})]).then(([q,s]) => {setQuestions(q.results || q);setSubjects(s.subjects);setRecent(s.recent_imports || [])}).catch(e => {if(e.name!=='AbortError')setError(t('We could not complete this request. Please retry.'))})
+    setSubjects([]);setRecent([]);setQuestions(null);setError('')
+    Promise.all([loadBankQuestions(institutionId,controller.signal),staffApiFetch(`questions/import/docx/preview/?institution=${institutionId}`,{signal:controller.signal})]).then(([q,s]) => {if(controller.signal.aborted)return;setQuestions(q);setSubjects(s.subjects);setRecent(s.recent_imports || [])}).catch(e => {if(e.name!=='AbortError')setError(t('We could not complete this request. Please retry.'))})
     return () => controller.abort()
   },[institutionId,revision])
   useEffect(() => {
@@ -274,7 +322,7 @@ export default function QuestionsPage() {
     setPreview(null);setError('');setLoadingSession(!!sessionId)
     if (sessionId) setSuccess(null)
     if (sessionId) staffApiFetch(`questions/import/docx/${sessionId}/`,{signal:controller.signal})
-      .then(data => {if(controller.signal.aborted)return;if (data.status === 'completed') setSuccess(data.imported_count ?? 'completed');else setPreview(data)})
+      .then(data => {if(controller.signal.aborted)return;if (data.status === 'completed') setSuccess(data);else setPreview(data)})
       .catch(e => {if(e.name !== 'AbortError') setError(e.status===404 ? t('This import session is unavailable. It may have expired.') : importError(e,t))})
       .finally(() => {if(!controller.signal.aborted)setLoadingSession(false)})
     return () => controller.abort()
@@ -306,15 +354,14 @@ export default function QuestionsPage() {
       throw error
     } finally {setBusy(false)}
   }
-  function confirm() {return run(async () => {const r = await staffApiFetch(`questions/import/docx/${preview.import_session_id}/confirm/`,{method:'POST',body:{revision:preview.revision}});setSuccess(r.imported_count);setPreview(null)})}
+  function confirm() {return run(async () => {const r = await staffApiFetch(`questions/import/docx/${preview.import_session_id}/confirm/`,{method:'POST',body:{revision:preview.revision}});setSuccess(r);setPreview(null)})}
   return <div className="question-bank" dir={direction}><h1>{t('Questions')}</h1>{error && <div role="alert">{error}<button onClick={() => setRevision(v=>v+1)}>{t('Retry')}</button></div>}
     {sessionId && <button onClick={returnToBank}>{t('Return to Question Bank')}</button>}
-    {loadingSession ? <p role="status">{t('Loading…')}</p> : sessionId && !preview && success===null && error ? <p>{t('Retry')}</p> : success!==null ? <section role="status"><h2>{success === 'completed' ? t('Import completed') : label(`${success} questions imported as drafts.`, `تم استيراد ${success} سؤالًا كمسودات.`)}</h2><button onClick={returnToBank}>{t('View Question Bank')}</button></section> : preview ? <ImportReview key={`${institutionId}:${preview.import_session_id}`} preview={preview} t={t} busy={busy} subjects={subjects} onCreateSubject={createSubject} onChange={review} onConfirm={confirm} onCancel={returnToBank} /> : <>
+    {loadingSession ? <p role="status">{t('Loading…')}</p> : sessionId && !preview && success===null && error ? <p>{t('Retry')}</p> : success!==null ? <section role="status"><h2>{success === 'completed' ? t('Import completed') : label(`${typeof success === 'object' ? success.imported_count : success} questions imported as drafts.`, `تم استيراد ${typeof success === 'object' ? success.imported_count : success} سؤالًا كمسودات.`)}</h2>{typeof success === 'object' && <CompletedImport receipt={success} t={t}/>}<button onClick={returnToBank}>{t('View Question Bank')}</button></section> : preview ? <ImportReview key={`${institutionId}:${preview.import_session_id}`} preview={preview} t={t} busy={busy} subjects={subjects} onCreateSubject={createSubject} onChange={review} onConfirm={confirm} onCancel={returnToBank} /> : <>
       <div className="import-actions"><strong>{t('Import Questions')}</strong><button onClick={() => setKind('csv')}>{t('CSV')}</button><button onClick={() => setKind('docx')}>{t('Word document')}</button></div>
       {kind === 'docx' && <p>{t('New imports can be resumed for 7 days. Save each review change.')}</p>}
       {kind === 'docx' && recent.length > 0 && <section><h2>{t('Resume Imports')}</h2>{recent.map(item => <p key={item.import_session_id}><button onClick={() => navigate(`/app/questions/import/word/${item.import_session_id}`)}>{t('Resume Import')} / {item.questions_detected} / <bdi>{new Date(item.created_at).toLocaleString()}</bdi></button></p>)}</section>}
       {kind && <form className="import-upload" onSubmit={upload}><label>{t(kind==='docx'?'Word document':'CSV')}<input required name="file" type="file" accept={kind==='docx'?'.docx':'.csv'} disabled={busy} /></label><button disabled={busy}>{t(busy?'Processing…':'Upload')}</button><button type="button" disabled={busy} onClick={() => setKind(null)}>{t('Cancel')}</button></form>}
-      {questions===null ? <p>{t('Loading…')}</p> : !questions.length ? <p>{t('No questions found')}</p> : questions.slice(page*25,page*25+25).map(q => <details className="import-question" key={q.id}><summary><bdi>{q.text.slice(0,120)}</bdi> · {q.status}</summary><p dir="auto">{q.source_metadata?.section_title}</p><p dir="auto" style={{whiteSpace:'pre-wrap'}}>{q.text}</p><QuestionMedia media={q.media} /><ol>{q.options.map(o => <li key={o.id}><bdi>{o.text}</bdi>{o.is_correct && <> · {t('Correct answer')}</>}</li>)}</ol></details>)}
-      {questions?.length>25 && <div className="import-actions"><button disabled={page===0} onClick={()=>setPage(page-1)}>{t('Previous')}</button><button disabled={(page+1)*25>=questions.length} onClick={()=>setPage(page+1)}>{t('Next')}</button></div>}
+      {questions===null ? <p>{t('Loading\u2026')}</p> : <QuestionBank questions={questions} subjects={subjects} t={t}/>}
     </>}{busy && preview && <p role="status">{t('Processing…')}</p>}</div>
 }

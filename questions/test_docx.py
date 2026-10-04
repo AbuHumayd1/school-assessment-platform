@@ -48,6 +48,23 @@ class DocxParserTests(SimpleTestCase):
     def parse(self, **kwargs): return parse_docx(fixture(**kwargs))[0]
     def question(self, **kwargs): return self.parse(**kwargs)['sections'][0]['questions'][0]
 
+    def test_explicit_directions_are_separate_and_bounded(self):
+        d=self.parse(lines=['SECTION: Comprehension','Directions: Read the passage and answer Questions 1?2.','1. Prompt','a. A','b. B','KEY','1 A'])
+        self.assertEqual(d['sections'][0]['directions'],'Read the passage and answer Questions 1?2.')
+        self.assertEqual(d['sections'][0]['questions'][0]['text'],'Prompt')
+        self.assertEqual(len(d['source_document']['sha256']),64)
+        self.assertEqual(d['source_document']['filename'],'fixture.docx')
+        self.assertEqual(d['original_parsed_count'],1)
+
+    def test_provenance_section_titles_are_bounded(self):
+        with self.assertRaises(ValidationError):
+            self.parse(lines=['SECTION: '+('x'*501),'1. Prompt','a. A','b. B','KEY','1 A'])
+
+    def test_uncertain_preamble_is_not_silently_classified_as_directions(self):
+        d=self.parse(lines=['SECTION: Reading','Read this ambiguous preamble','1. Prompt','a. A','b. B','KEY','1 A'])
+        self.assertEqual(d['sections'][0]['directions'],'')
+        self.assertTrue(d['key_errors'])
+
     def test_four_options_varied_markers_and_authored_text(self):
         q=self.question();self.assertEqual(q['readiness'],'ready');self.assertEqual(q['text'],'Authored typo stays');self.assertEqual(q['correct_answer'],'B');self.assertEqual(len(q['options']),4)
 
@@ -202,6 +219,37 @@ class DocxWorkflowTests(APITestCase):
             self.assertEqual(self.media_status(media_url), 400)
         session.refresh_from_db()
         self.assertEqual(session.expires_at, data['expires_at'])
+
+    def test_durable_provenance_and_exclusion_history_survive_completion(self):
+        data=self.upload(lines=['SECTION: Reading','Directions: Read carefully.','1. First','a. A','b. B','2. Second','a. C','b. D','KEY','1 A','2 B'])
+        data=self.edit(data,metadata={'subject':self.subject.pk})
+        data=self.edit(data,question_id='s1q2',changes={'included':False})
+        response=self.confirm(data)
+        self.assertEqual(response.status_code,201,response.data)
+        for key,value in {'original_parsed_count':2,'included_count':1,'excluded_count':1,'imported_count':1,'unresolved_count':0,'blocker_count':0}.items():
+            self.assertEqual(response.data[key],value)
+            self.assertEqual(self.client.get(self.path(data)).data[key],value)
+        q=Question.objects.get();m=q.source_metadata
+        self.assertEqual(q.text,'First')
+        self.assertEqual(m['section_title'],'SECTION: Reading')
+        self.assertEqual(m['section_order'],1)
+        self.assertEqual(m['question_number'],1)
+        self.assertEqual(m['document_order'],3)
+        self.assertEqual(m['section_directions'],'Read carefully.')
+        self.assertEqual(m['import_session_id'],data['import_session_id'])
+        self.assertEqual(m['section_id'],'s1')
+        self.assertEqual(m['original_question_type'],'multiple_choice')
+        self.assertEqual(m['source_document']['filename'],'fixture.docx')
+        self.assertEqual(len(m['source_document']['sha256']),64)
+        self.assertNotIn('source_xml',str(m))
+        session=DocxImportSession.objects.get(pk=data['import_session_id'])
+        self.assertEqual(session.preview,{})
+        session.delete()
+        q.refresh_from_db();self.assertEqual(q.source_metadata,m)
+        audit=AuditEvent.objects.get(metadata__action='docx_confirmed')
+        self.assertEqual(audit.metadata['original_parsed_count'],2)
+        self.assertEqual(audit.metadata['excluded_count'],1)
+        self.assertEqual(audit.metadata['source_document'],m['source_document'])
 
     def test_create_subject_and_select_preserves_reviews_and_recovery(self):
         data = self.upload(lines=['1.0 S', '1. Good', 'a. A', 'b. B', '2. Missing', 'a. A', 'b. B', 'KEY', '1 A'])
@@ -461,17 +509,36 @@ class DocxWorkflowTests(APITestCase):
     def test_candidate_media_allowlist_has_no_keys(self):
         from .docx_views import media_representation
         d=self.ready(lines=['1.0 S','1. In the sample above?','a. A','b. B','KEY','1 A'],image=True);self.confirm(d);data=media_representation(Question.objects.get());self.assertEqual(set(data[0]),{'id','url','alt_text','caption','order'});self.assertNotIn('correct',str(data))
-    def make_attempt(self, question, access_mode='assigned_group'):
+    def make_attempt(self, question, access_mode='assigned_group', assessment_order=None):
         from assessments.models import Assessment
         from attempts.models import Attempt, AttemptQuestion, AttemptQuestionOption
         from candidates.models import Candidate
         candidate=Candidate.objects.create(institution=self.a,user=self.user,candidate_id='DOCX-C',first_name='Candidate',last_name='Test')
         assessment=Assessment.objects.create(institution=self.a,subject=self.subject,created_by=self.user,title='Media examination',assessment_type='test',duration_minutes=30,candidate_access=access_mode)
+        if assessment_order is not None:
+            from assessments.models import AssessmentQuestion
+            AssessmentQuestion.objects.create(assessment=assessment,question=question,order=assessment_order,marks='1.00')
         now=timezone.now()
         attempt=Attempt.objects.create(institution=self.a,assessment=assessment,candidate=candidate,attempt_number=1,started_at=now,expires_at=now+timedelta(minutes=30),last_activity_at=now)
         row=AttemptQuestion.objects.create(attempt=attempt,question=question,order=1)
         for option in question.options.all():AttemptQuestionOption.objects.create(attempt_question=row,option=option,order=option.order)
         return attempt,row
+
+    def test_source_number_does_not_replace_assessment_or_candidate_order(self):
+        from assessments.models import AssessmentQuestion
+        from attempts.serializers import CandidateExamQuestionSerializer
+        data=self.ready(lines=['SECTION: Source','7. Prompt','a. A','b. B','KEY','7 A'])
+        self.assertEqual(self.confirm(data).status_code,201)
+        q=Question.objects.get()
+        q.status='approved';q.save(update_fields=['status'])
+        attempt,row=self.make_attempt(q,assessment_order=43)
+        link=AssessmentQuestion.objects.get(assessment=attempt.assessment,question=q)
+        payload=CandidateExamQuestionSerializer(row).data
+        self.assertEqual(q.source_metadata['question_number'],7)
+        self.assertEqual(link.order,43)
+        self.assertEqual(payload['order'],1)
+        self.assertNotIn('source_metadata',str(payload))
+        self.assertNotIn('is_correct',str(payload))
 
     def test_candidate_serializer_and_private_media_require_owned_active_attempt(self):
         from attempts.serializers import CandidateExamQuestionSerializer
