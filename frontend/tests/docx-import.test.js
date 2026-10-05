@@ -56,7 +56,7 @@ test('confirmation uses only server eligibility and fails closed without a contr
 test('confirmation disabled state renders server blockers',()=>{
  const data={...preview,subject_id:null,subject_name:null,confirmation:{...preview.confirmation,eligible:false,subject_id:null,subject_name:null,blockers:[{code:'subject_required',message:'Select or create a subject before importing.'}]}}
  const markup=html(ImportReview,{preview:data,t,busy:false,onChange:()=>{},onConfirm:()=>{},subjects:[]})
- assert.match(markup,/<button disabled="">Confirm Import/)
+ assert.match(markup,/<button disabled="">Import Questions/)
  assert.match(markup,/Select or create a subject before importing/);assert.match(markup,/Required/)
 })
 
@@ -83,7 +83,7 @@ test('subject selection immediately saves explicit IDs and clearing resets depen
 test('a saved unavailable subject is explained rather than presented as an arbitrary default',()=>{
  const data={...preview,confirmation:{...preview.confirmation,subject_name:null,eligible:false,blockers:[{code:'metadata_invalid',message:'Import metadata requires correction.',details:{subject:['Invalid subject.']}}]}}
  const markup=html(ImportConfirmation,{preview:data,t,busy:false})
- assert.match(markup,/Selected subject is unavailable/);assert.match(markup,/Invalid subject/);assert.match(markup,/<button disabled="">Confirm Import/)
+ assert.match(markup,/Selected subject is unavailable/);assert.match(markup,/Invalid subject/);assert.match(markup,/<button disabled="">Import Questions/)
 })
 
 test('nested backend validation messages remain visible',()=>{
@@ -209,8 +209,8 @@ test('confirmation shows dynamic included readiness excludes errors and explains
  assert.equal(importConfirmationCounts(data),data.confirmation)
  assert.equal(canConfirmImport(data),true)
  const markup=html(ImportConfirmation,{preview:data,t,busy:false,onConfirm:()=>{},onAttention:()=>{}})
- assert.match(markup,/151 Ready to import/);assert.match(markup,/20 Excluded/);assert.match(markup,/0 Unresolved/)
- assert.doesNotMatch(markup,/<button disabled="">Confirm Import/)
+ assert.match(markup,/151 Ready to import/);assert.match(markup,/20 Excluded/);assert.match(markup,/No issues found/);assert.doesNotMatch(markup,/Unresolved/)
+ assert.doesNotMatch(markup,/<button disabled="">Import Questions/)
  const noSubject={...data,subject_id:null,subject_name:null,confirmation:{...data.confirmation,eligible:false,status:'blocked',subject_id:null,subject_name:null,blockers:[{code:'subject_required',message:'Select or create a subject before importing.'}]}}
  assert.match(html(ImportConfirmation,{preview:noSubject,t,busy:false}),/Select or create a subject before importing/)
  assert.equal(canConfirmImport(noSubject),false)

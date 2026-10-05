@@ -8,4 +8,7 @@ from .models import QuestionMedia
 def remove_private_file(sender, instance, **kwargs):
     storage, name = instance.file.storage, instance.file.name
     if name:
-        transaction.on_commit(lambda: storage.delete(name))
+        def delete_unreferenced_file():
+            if not QuestionMedia.objects.filter(file=name).exists():
+                storage.delete(name)
+        transaction.on_commit(delete_unreferenced_file)

@@ -80,7 +80,7 @@ class DocxParserTests(SimpleTestCase):
     def test_wrapped_prompt(self):
         self.assertEqual(self.question(lines=['1.0 S','1. First','second authored line','a. A','b. B','KEY','1 A'])['text'],'First\nsecond authored line')
 
-    def test_missing_answer(self): self.assertEqual(self.question(lines=['1.0 S','1. Q','a. A','b. B'])['readiness'],'error')
+    def test_missing_answer(self): self.assertEqual(self.question(lines=['1.0 S','1. Q','a. A','b. B'])['readiness'],'needs_review')
     def test_invalid_answer(self): self.assertIn('unavailable',self.question(lines=['1.0 S','1. Q','a. A','b. B','KEY','1 E'])['key_issue'])
     def test_duplicate_answer(self): self.assertIsNone(self.question(lines=['1.0 S','1. Q','a. A','b. B','KEY','1 A','1 B'])['correct_answer'])
     def test_nonexistent_answer(self): self.assertTrue(self.parse(lines=['1.0 S','1. Q','a. A','b. B','KEY','2 A'])['key_errors'])
@@ -386,8 +386,8 @@ class DocxWorkflowTests(APITestCase):
         self.assertEqual([q['id'] for q in questions],
                          [q['id'] for section in uploaded['sections'] for q in section['questions']])
         for status, summary_key, count in [('ready', 'ready_count', 132),
-                                            ('needs_review', 'review_count', 11),
-                                            ('error', 'error_count', 28)]:
+                                            ('needs_review', 'review_count', 34),
+                                            ('error', 'error_count', 5)]:
             self.assertEqual(data['summary'][summary_key], count)
             self.assertEqual(sum(q['readiness'] == status for q in questions), count)
         missing = [q for q in questions if not q['correct_answer']]
@@ -395,16 +395,17 @@ class DocxWorkflowTests(APITestCase):
         for question in missing:
             self.assertTrue(question['text'])
             self.assertTrue(question['options'])
-            self.assertIn('A valid correct answer is required.', question['errors'])
+            self.assertEqual(question['readiness'], 'needs_review')
+            self.assertIn('Missing answer', question['warnings'])
         resolved = self.edit(data, question_id='s1q27', changes={'reviewed': True})
         self.assertEqual(resolved['summary']['ready_count'], 133)
-        self.assertEqual(resolved['summary']['review_count'], 10)
+        self.assertEqual(resolved['summary']['review_count'], 33)
         excluded = self.edit(resolved, question_id='s1q28', changes={'included': False})
         self.assertEqual(excluded['summary']['questions_detected'], 171)
-        self.assertEqual(excluded['summary']['review_count'], 10)
+        self.assertEqual(excluded['summary']['review_count'], 33)
         self.assertFalse(excluded['sections'][0]['questions'][27]['included'])
         corrected = self.edit(excluded, question_id='s6q1', changes={'correct_answer': 'A'})
-        self.assertEqual(corrected['summary']['error_count'], 27)
+        self.assertEqual(corrected['summary']['error_count'], 5)
         self.assertEqual(corrected['summary']['ready_count'], 134)
 
     def test_review_work_survives_fresh_client_refetch(self):

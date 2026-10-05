@@ -22,7 +22,7 @@ W, M = '{' + NS['w'] + '}', '{' + NS['m'] + '}'
 DEFAULT_LIMITS = dict(upload_bytes=10*1024*1024, uncompressed_bytes=40*1024*1024,
                       members=1000, questions=1000, images=100, image_bytes=5*1024*1024,
                       media_bytes=20*1024*1024, image_pixels=16000000, content_chars=1000000, item_chars=20000)
-KEY = re.compile(r'^(?:key|answers?|answers?\s+key|key\s+answers?)\s*:?[\s]*$', re.I)
+KEY = re.compile(r'^\s*(?:key|answers?|answers?\s+keys?|keys?\s+answers?|correct\s+answers?|marking\s+keys?)(?:\s*:\s*(.*)|\s*[.!–—-])?\s*$', re.I)
 QUESTION = re.compile(r'^\s*(\d+)[.)]\s+(.+)$', re.S)
 OPTION = re.compile(r'^\s*([a-e])[.)]\s*(.*)$', re.I | re.S)
 SECTION = re.compile(r'^(?:\d+\.0\s+\S|SECTION\s*:\s*\S)', re.I)
@@ -135,6 +135,7 @@ def raster_image(data, name):
 
 
 def validate_preview(document):
+    from .answer_keys import valid_labels
     questions = [q for s in document['sections'] for q in s['questions']]
     for section in document['sections']:
         numbers = Counter(q['source_number'] for q in section['questions'])
@@ -147,21 +148,23 @@ def validate_preview(document):
             if any('[Equation content requires manual review.]' in o['text'] for o in q['options']): errors.append('Replace every unresolved option equation with complete mathematical content.')
             labels = [o['label'] for o in q['options']]
             if labels != list('ABCDE')[:len(labels)]: errors.append('Option markers are missing, repeated or out of order.')
-            if q.get('correct_answer') not in labels: errors.append('A valid correct answer is required.')
-            if q['question_type'] not in {'multiple_choice', 'true_false'}: errors.append('Choose a supported objective question type.')
+            missing_answer = not valid_labels(q)
+            if q['question_type'] not in {'multiple_choice', 'multiple_select', 'true_false'}: errors.append('Choose a supported objective question type.')
             if q['question_type'] == 'true_false' and {o['text'].strip().casefold() for o in q['options']} != {'true', 'false'}: errors.append('True/false requires True and False options.')
             warnings = list(q['source_warnings'])
+            if missing_answer: warnings.append('Missing answer')
             if numbers[q['source_number']] > 1: warnings.append('Duplicate source question number; verify the answer manually.')
             if q.get('key_issue'): warnings.append(q['key_issue'])
             if any(e['status'] != 'converted' for e in q['equations']):
                 if not q.get('equation_replacement'): errors.append('Equation content requires manual review. Supply a complete replacement or exclude this question.')
             if any(m['status'] != 'converted' for m in q['media']): errors.append('An image could not be converted. Exclude this question; its image must not be omitted.')
             q['errors'], q['warnings'] = errors, list(dict.fromkeys(warnings))
-            q['readiness'] = 'error' if errors else 'needs_review' if warnings and not q.get('reviewed') else 'ready'
+            q['readiness'] = 'error' if errors else 'needs_review' if missing_answer or warnings and not q.get('reviewed') else 'ready'
     document['summary'] = dict(sections_detected=len(document['sections']), questions_detected=len(questions),
         ready_count=sum(q['readiness']=='ready' for q in questions), review_count=sum(q['readiness']=='needs_review' for q in questions),
-        error_count=sum(q['readiness']=='error' for q in questions), answers_matched=sum(q.get('correct_answer') in [o['label'] for o in q['options']] for q in questions),
-        answers_missing=sum(not q.get('correct_answer') for q in questions),
+        excluded_count=sum(not q['included'] for q in questions),
+        error_count=sum(q['readiness']=='error' for q in questions), answers_matched=sum(bool(valid_labels(q)) for q in questions),
+        answers_missing=sum(not valid_labels(q) for q in questions),
         answer_key_entries=document.get('answer_key_entries', 0),
         invalid_ambiguous_answers=sum(bool(q.get('key_issue')) for q in questions) + len(document['key_errors']),
         media_detected=document.get('media_count', 0), equations_detected=sum(len(q['equations']) for q in questions),
@@ -170,6 +173,8 @@ def validate_preview(document):
 
 
 def parse_docx(upload):
+    from .answer_keys import ENTRY, entry, recompute_matches, section_name, table_entries
+    from .import_reconciliation import initialize_blocks
     lim = limits()
     try:
         if not upload or not getattr(upload, 'name', '').lower().endswith('.docx'): raise DocxInputError('Extension')
@@ -210,14 +215,75 @@ def parse_docx(upload):
                 result = {'id': f's{len(doc["sections"])+1}', 'source_title': title, 'source_order': order, 'questions': [], 'key_entries': [], 'directions': ''}
                 doc['sections'].append(result)
                 return result
-            for order, p in enumerate(body, 1):
+            embedded_entries, key_blocks = [], []
+            active_key_block = None
+            key_section_title = ''
+            body_items = list(body)
+            def numbering_format(node):
+                num = node.find('w:pPr/w:numPr/w:numId', NS)
+                level = node.find('w:pPr/w:numPr/w:ilvl', NS)
+                return numbering.definitions.get((num.get(W+'val'), level.get(W+'val', '0') if level is not None else '0'), (None,))[0] if num is not None else None
+            for order, p in enumerate(body_items, 1):
                 if p.tag in {W+'sectPr', W+'bookmarkStart', W+'bookmarkEnd', W+'proofErr', W+'permStart', W+'permEnd'}: continue
                 text, equations = paragraph_content(p)
                 if any(len(e.get('source_xml','')) > lim['item_chars'] for e in equations): raise DocxInputError('Equation source size')
                 text_count += len(text) + sum(len(e.get('source_xml','')) for e in equations)
                 if text_count > lim['content_chars']: raise DocxInputError('Content limit')
                 fmt, number = numbering.marker(p)
-                is_heading = fmt not in {'lowerLetter', 'upperLetter'} and bool(SECTION.match(text))
+                style = p.find('w:pPr/w:pStyle', NS)
+                styled_heading = style is not None and bool(re.match(r'^heading[1-6]$', style.get(W+'val', ''), re.I))
+                next_text = paragraph_content(body_items[order])[0] if order < len(body_items) and body_items[order].tag == W+'p' else ''
+                next_item = ENTRY.fullmatch(next_text)
+                next_answer_like = bool(next_item and re.fullmatch(r'(?:[A-E]|True|False)', next_item[2].strip(), re.I))
+                if order < len(body_items) and numbering_format(body_items[order]) == 'decimal':
+                    next_answer_like |= bool(re.fullmatch(r'(?:[A-E]|True|False)', next_text.strip(), re.I))
+                uncertain_heading = bool(current and current['options'] and text and not ENTRY.match(text) and not OPTION.match(text) and fmt is None and next_answer_like)
+                is_heading = fmt not in {'lowerLetter', 'upperLetter'} and not KEY.fullmatch(text) and bool(SECTION.match(text) or styled_heading or uncertain_heading)
+                if key_mode and is_heading:
+                    # Repeated headings inside a consolidated key reference source sections.
+                    # A following question/options block instead starts a real new section.
+                    nodes = [node for node in body_items[order:order+8] if node.tag == W+'p' and paragraph_content(node)[0].strip()]
+                    following = [paragraph_content(node)[0].strip() for node in nodes]
+                    begins_questions = bool(following and (QUESTION.match(following[0]) or numbering_format(nodes[0]) == 'decimal') and any(OPTION.match(value) or numbering_format(node) in {'lowerLetter','upperLetter'} for value,node in zip(following[1:],nodes[1:])))
+                    matching = [s for s in doc['sections'] if section_name(s['source_title']) == section_name(text)]
+                    if not begins_questions:
+                        section = matching[0] if len(matching) == 1 else None
+                        key_section_title = '' if section else text
+                        if section is None:
+                            doc['key_errors'].append({'source_order': order, 'message': 'Answer-key section is unknown or ambiguous; correct affected answers manually.'})
+                        continue
+                if key_mode and p.tag == W+'tbl':
+                    rows = [[''.join(t.text or '' for t in cell.iter(W+'t')) for cell in row.findall('w:tc', NS)] for row in p.findall('w:tr', NS)]
+                    try:
+                        if any(e.tag.split('}')[-1] in {'object','drawing','pict','oMath','altChunk'} for e in p.iter()):
+                            raise ValidationError('Unsupported answer-key object.')
+                        items = table_entries(rows)
+                        if not items: raise ValidationError('Empty answer-key table.')
+                        for item in items:
+                            item.update(id=f'embedded-{order}-{len(embedded_entries)}', source_order=order,
+                                        section_id=section['id'] if section and not item['section'] else '',
+                                        block_id=active_key_block['id'])
+                            if len(embedded_entries) >= 2000: raise DocxInputError('Answer entry count')
+                            embedded_entries.append(item)
+                            active_key_block['entries'].append(item)
+                    except ValidationError:
+                        doc['key_errors'].append({'source_order': order, 'message': 'Answer-key table requires source review.'})
+                        if section and section['questions']: section['questions'][-1]['source_warnings'].append(REVIEW_WARNING)
+                    continue
+                if p.tag == W+'tbl':
+                    rows = [[''.join(t.text or '' for t in cell.iter(W+'t')) for cell in row.findall('w:tc', NS)] for row in p.findall('w:tr', NS)]
+                    try:
+                        items = table_entries(rows)
+                    except ValidationError:
+                        items = [entry(row[0] if row else '', ' | '.join(row[1:])) for row in rows[:2000] if any(row)]
+                        for item in items: item['diagnostic'] = 'Unrecognized answer-key table row.'
+                    block_id = f'table-block-{order}'
+                    for index, item in enumerate(items):
+                        item.update(id=f'embedded-table-{order}-{index}', block_id=block_id, source_order=order)
+                        if any(e.tag.split('}')[-1] in {'object','drawing','pict','oMath','altChunk'} for e in p.iter()):
+                            item['diagnostic'] = 'Answer-key object requires manual review.'
+                    key_blocks.append(dict(id=block_id, title=f'Table {order}', classification='ignore', uncertain=True,
+                                           entries=items, unparsed=[{'text':' | '.join(row)[:1000]} for row in rows[:3]]))
                 unsupported = p.tag != W+'p' or fmt == 'unsupported' or any(e.tag.split('}')[-1] in {'anchor', 'object', 'chart', 'relIds', 'altChunk', 'txbxContent'} for e in p.iter())
                 media = []
                 for e in p.iter():
@@ -258,26 +324,67 @@ def parse_docx(upload):
                     if len(combined) > lim['item_chars']: raise DocxInputError('Directions size')
                     section['directions'] = combined
                     continue
-                if KEY.match(text):
-                    if section is None: doc['key_errors'].append({'source_order': order, 'message': 'Answer key has no preceding section.'})
-                    key_mode = True
+                key_heading = KEY.fullmatch(text)
+                if key_heading:
+                    key_section_title = key_heading[1].strip() if key_heading[1] else ''
+                    if key_heading[1]:
+                        matching = [s for s in doc['sections'] if section_name(s['source_title']) == section_name(key_heading[1])]
+                        section = matching[0] if len(matching) == 1 else None
+                    elif len(doc['sections']) > 1:
+                        scoped = {e.get('section_id') for e in embedded_entries}
+                        # A subsequent question section closes a local question/key block.
+                        # Without that boundary, an unqualified consolidated key cannot
+                        # inherit the last section while earlier sections lack key context.
+                        closes_local_block = False
+                        for next_index in range(order, len(body_items)):
+                            node = body_items[next_index]
+                            title = paragraph_content(node)[0]
+                            style_node = node.find('w:pPr/w:pStyle', NS)
+                            if not (SECTION.match(title) or style_node is not None and re.match(r'^heading[1-6]$', style_node.get(W+'val', ''), re.I)):
+                                continue
+                            following = [n for n in body_items[next_index+1:next_index+9] if n.tag == W+'p' and paragraph_content(n)[0]]
+                            if following and (QUESTION.match(paragraph_content(following[0])[0]) or numbering_format(following[0]) == 'decimal') and any(OPTION.match(paragraph_content(n)[0]) or numbering_format(n) in {'lowerLetter','upperLetter'} for n in following[1:]):
+                                closes_local_block = True
+                                break
+                        if not closes_local_block and any(s is not section and s['id'] not in scoped for s in doc['sections']): section = None
+                    key_mode, current = True, None
+                    active_key_block = dict(id=f'key-block-{order}', title=text[:500], classification='answer_key', uncertain=False, entries=[])
+                    key_blocks.append(active_key_block)
                     continue
                 if key_mode:
                     if text:
-                        title = re.sub(r'^\d+\.0\s+', '', text).strip().casefold()
-                        matching = [s for s in doc['sections'] if re.sub(r'^\d+\.0\s+', '', s['source_title']).strip().casefold() == title]
-                        if len(matching) == 1:
-                            section = matching[0]
+                        matching = [s for s in doc['sections'] if section_name(s['source_title']) == section_name(text)]
+                        if matching:
+                            section = matching[0] if len(matching) == 1 else None
+                            key_section_title = '' if section else text
+                            if section is None: doc['key_errors'].append({'source_order': order, 'message': 'Answer-key section is ambiguous; correct affected answers manually.'})
                             continue
-                        doc['answer_key_entries'] += 1
-                        match = ANSWER.match(text)
-                        if match and section is not None: section['key_entries'].append({'number': int(match[1]), 'answer': match[2].upper(), 'source_order': order})
-                        elif fmt == 'decimal' and re.fullmatch(r'[A-Za-z]|true|false', text, re.I) and section is not None:
-                            section['key_entries'].append({'number': number, 'answer': text.upper(), 'source_order': order})
-                        else: doc['key_errors'].append({'source_order': order, 'message': 'Malformed or unassociated answer-key entry.'})
+                        match = ENTRY.fullmatch(text)
+                        if match or fmt == 'decimal':
+                            value = match[2].strip() if match else text
+                            if re.fullmatch(r'(?:[a-z]|true|false)\.', value, re.I): value = value[:-1]
+                            item = entry(match[1] if match else number, value, section=key_section_title if section is None else '',
+                                         section_id=section['id'] if section else '', location=f'paragraph {order}')
+                            item.update(id=f'embedded-{order}', source_order=order, block_id=active_key_block['id'])
+                            if media or equations or unsupported:
+                                item['diagnostic'] = 'Answer-key object requires manual review.'
+                                active_key_block['uncertain'] = True
+                                doc['key_errors'].append({'source_order': order, 'message': 'Answer-key object requires manual review.'})
+                            if len(embedded_entries) >= 2000: raise DocxInputError('Answer entry count')
+                            embedded_entries.append(item)
+                            active_key_block['entries'].append(item)
+                        else:
+                            doc['key_errors'].append({'source_order': order, 'message': 'Unrecognized answer-key paragraph; review the source block.'})
+                            active_key_block['uncertain'] = True
+                            active_key_block.setdefault('unparsed', []).append({'source_order':order, 'text':text[:1000]})
+                            section = None
+                            key_section_title = text[:500]
                     continue
                 option = OPTION.match(text)
                 question = QUESTION.match(text) if fmt not in {'lowerLetter', 'upperLetter'} else None
+                numbered_entry = ENTRY.fullmatch(text) if fmt not in {'lowerLetter', 'upperLetter'} else None
+                if not question and numbered_entry and re.fullmatch(r'(?:[A-E]|True|False)', numbered_entry[2].strip(), re.I):
+                    question = numbered_entry
                 if media and not text and not equations:
                     if fmt in {'lowerLetter', 'upperLetter'} and current:
                         pending.extend(media)
@@ -287,6 +394,8 @@ def parse_docx(upload):
                     pending.extend(media)
                     continue
                 if fmt == 'decimal' or question:
+                    if current and current['options'] and re.fullmatch(r'(?:[A-E]|True|False)', (question[2] if question else text).strip(), re.I):
+                        section = new_section('Unclassified numbered block', order)
                     if section is None: section = new_section('Untitled section', order)
                     current = {'id': f'{section["id"]}q{len(section["questions"])+1}', 'source_number': int(question[1]) if question else number,
                         'source_order': order, 'text': question[2] if question else text, 'options': [], 'correct_answer': None,
@@ -324,25 +433,21 @@ def parse_docx(upload):
                 elif equations and current:
                     current['equations'].extend(equations)
                 elif text or media or equations:
-                    doc['key_errors'].append({'source_order': order, 'message': 'Content outside a recognized question requires source review.'})
+                    doc['key_errors'].append({'source_order': order, 'text': text[:1000], 'message': 'Content outside a recognized question requires source review.'})
             if pending:
                 doc['key_errors'].append({'source_order': len(body), 'message': 'Unassociated media requires source review.'})
             for section in doc['sections']:
                 for q in section['questions']:
-                    entries = [e for e in section['key_entries'] if e['number'] == q['source_number']]
-                    if len(entries) == 1:
-                        answer = entries[0]['answer']
-                        if answer in {'TRUE', 'FALSE'}:
-                            matches = [o['label'] for o in q['options'] if o['text'].strip().upper() == answer]
-                            answer = matches[0] if len(matches) == 1 else answer
-                        q['correct_answer'] = answer
-                        if answer not in [o['label'] for o in q['options']]: q['key_issue'] = 'Answer key refers to an unavailable option.'
-                    elif len(entries) > 1: q['key_issue'] = 'Duplicate answer-key entry; choose the correct answer manually.'
                     if {o['text'].strip().casefold() for o in q['options']} == {'true', 'false'}: q['question_type'] = 'true_false'
-                    q['original'] = {'text': q['text'], 'options': [dict(o) for o in q['options']], 'correct_answer': q['correct_answer'], 'question_type': q['question_type']}
-                known = {q['source_number'] for q in section['questions']}
-                for entry in section['key_entries']:
-                    if entry['number'] not in known: doc['key_errors'].append({'source_order': entry['source_order'], 'message': 'Answer references a nonexistent question.'})
+                    q['original'] = {'text': q['text'], 'options': [dict(o) for o in q['options']], 'correct_answer': None, 'question_type': q['question_type']}
+            doc['embedded_answer_key'] = {'entries': embedded_entries, 'parsed_entry_count': len(embedded_entries),
+                                         'source_document': {'filename': 'Embedded answers', 'file_type': 'docx', 'sha256': hashlib.sha256(data).hexdigest()}}
+            doc['answer_key_entries'] = len(embedded_entries)
+            recompute_matches(doc, 1)
+            for s in doc['sections']:
+                for q in s['questions']: q['original']['correct_answer'] = q['correct_answer']
+            initialize_blocks(doc)
+            doc['blocks'].extend(key_blocks)
             if not doc['sections'] or not any(s['questions'] for s in doc['sections']): raise DocxInputError('No questions')
             doc['source_document'] = {'filename': posixpath.basename(upload.name.replace('\\', '/'))[:255], 'sha256': hashlib.sha256(data).hexdigest()}
             doc['original_parsed_count'] = sum(len(s['questions']) for s in doc['sections'])

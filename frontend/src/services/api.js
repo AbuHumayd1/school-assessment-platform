@@ -39,7 +39,7 @@ async function readResponse(response) {
 async function send(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const headers = new Headers(options.headers || {})
-  const { institutionScoped = false, institutionContextSnapshot, ...fetchOptions } = options
+  const { institutionScoped = false, institutionContextSnapshot, responseType, ...fetchOptions } = options
   headers.set('Accept', 'application/json')
   headers.delete('X-Institution-ID')
   if (institutionScoped && institutionContextSnapshot) {
@@ -58,7 +58,7 @@ async function send(path, options = {}) {
     headers,
     credentials: 'include',
   })
-  const data = await readResponse(response)
+  const data = response.ok && responseType === 'blob' ? await response.blob() : await readResponse(response)
   if (data && typeof data.csrfToken === 'string') csrfToken = data.csrfToken
   if (institutionScoped && [403, 404].includes(response.status)) {
     window.dispatchEvent(new CustomEvent('workspace-context-invalidated'))
