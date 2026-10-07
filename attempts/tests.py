@@ -21,6 +21,30 @@ from .models import Answer, AnswerSelection, Attempt, AttemptQuestion, AttemptQu
 from .services import start_attempt
 
 
+def finish_fixture_exam(exam, status=None):
+    """Publish only after isolated fixture preparation is complete."""
+    target = status or getattr(exam, '_fixture_status', Assessment.Status.APPROVED)
+    if target == Assessment.Status.DRAFT:
+        return exam
+    exam.status = Assessment.Status.REVIEW
+    exam.save(update_fields=['status'])
+    if target != Assessment.Status.REVIEW:
+        exam.status = Assessment.Status.APPROVED
+        exam.save(update_fields=['status'])
+        if target != Assessment.Status.APPROVED:
+            exam.status = target
+            exam.save(update_fields=['status'])
+    return exam
+
+
+def save_prepared_fixture(exam, *, update_fields):
+    # Reopen BEFORE participation, configure, and approve again. Never bypass locks.
+    Assessment.objects.filter(pk=exam.pk).update(status=Assessment.Status.DRAFT)
+    exam.status = Assessment.Status.DRAFT
+    exam.save(update_fields=set(update_fields) | {'status'})
+    return finish_fixture_exam(exam, Assessment.Status.APPROVED)
+
+
 class CandidateAttemptAPITests(APITestCase):
     @classmethod
     def setUpTestData(cls):
@@ -38,6 +62,7 @@ class CandidateAttemptAPITests(APITestCase):
         InstitutionMembership.objects.create(user=cls.user, institution=cls.school, role="student")
         InstitutionMembership.objects.create(user=cls.foreign_user, institution=cls.other_school, role="student")
         InstitutionMembership.objects.create(user=cls.staff, institution=cls.school, role="examiner")
+        InstitutionMembership.objects.create(user=cls.staff, institution=cls.other_school, role="examiner")
         cls.candidate = Candidate.objects.create(
             institution=cls.school, user=cls.user, candidate_id="C-001", first_name="Ada", last_name="Learner",
         )
@@ -58,14 +83,16 @@ class CandidateAttemptAPITests(APITestCase):
         cls.assessment = cls.make_assessment(cls, institution=cls.school, subject=cls.subject, group=cls.group, created_by=cls.staff)
         for position, question in enumerate((cls.mcq, cls.mcq_two, cls.multi, cls.truefalse), 1):
             AssessmentQuestion.objects.create(assessment=cls.assessment, question=question, order=position, marks=Decimal("1.00"))
+        finish_fixture_exam(cls.assessment)
         cls.foreign_assessment = cls.make_assessment(cls, institution=cls.other_school, subject=cls.other_subject, group=cls.other_group, created_by=cls.staff)
         AssessmentQuestion.objects.create(assessment=cls.foreign_assessment, question=cls.foreign_q, order=1, marks=Decimal("1.00"))
+        finish_fixture_exam(cls.foreign_assessment)
 
     @staticmethod
     def make_question(cls, institution, subject, question_type, text, correct_order):
         q = Question.objects.create(
             institution=institution, subject=subject, question_type=question_type, text=text,
-            created_by=cls.staff, status=Question.Status.APPROVED,
+            created_by=cls.staff, status=Question.Status.DRAFT,
         )
         count = 2 if question_type == Question.Type.TRUE_FALSE else 3
         for index in range(1, count + 1):
@@ -73,6 +100,8 @@ class CandidateAttemptAPITests(APITestCase):
                 question=q, text=f"{text} option {index}", order=index,
                 is_correct=index == correct_order or (question_type == Question.Type.MULTIPLE_SELECT and index == 3),
             )
+        q.status = Question.Status.APPROVED
+        q.save(update_fields=['status'])
         return q
 
     @staticmethod
@@ -81,11 +110,14 @@ class CandidateAttemptAPITests(APITestCase):
             institution=institution, title="Term assessment", assessment_type=Assessment.Type.TERM_EXAM,
             subject=subject, group=group, duration_minutes=30, attempt_limit=1,
             candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP,
-            status=Assessment.Status.SCHEDULED, created_by=created_by,
+            status=Assessment.Status.APPROVED, created_by=created_by,
             start_at=timezone.now() - timedelta(hours=1), end_at=timezone.now() + timedelta(hours=2),
         )
         values.update(kwargs)
-        return Assessment.objects.create(**values)
+        target = values.pop('status')
+        exam = Assessment.objects.create(**values)
+        exam._fixture_status = target
+        return exam
 
     def setUp(self):
         self.client.force_authenticate(self.user)
@@ -148,58 +180,66 @@ class CandidateAttemptAPITests(APITestCase):
     def test_draft_assessment_cannot_start(self):
         a = self.make_assessment(self, self.school, self.subject, self.group, self.staff, status=Assessment.Status.DRAFT)
         AssessmentQuestion.objects.create(assessment=a, question=self.mcq, order=1, marks=1)
+        finish_fixture_exam(a)
         self.assertEqual(self.start(a).status_code, 403)
 
     def test_review_assessment_cannot_start(self):
         a = self.make_assessment(self, self.school, self.subject, self.group, self.staff, status=Assessment.Status.REVIEW)
         AssessmentQuestion.objects.create(assessment=a, question=self.mcq, order=1, marks=1)
+        finish_fixture_exam(a)
         self.assertEqual(self.start(a).status_code, 403)
 
     def test_archived_assessment_cannot_start(self):
         a = self.make_assessment(self, self.school, self.subject, self.group, self.staff, status=Assessment.Status.ARCHIVED)
         AssessmentQuestion.objects.create(assessment=a, question=self.mcq, order=1, marks=1)
+        finish_fixture_exam(a)
         self.assertEqual(self.start(a).status_code, 403)
 
     def test_approved_assessment_can_start(self):
         a = self.make_assessment(self, self.school, self.subject, self.group, self.staff, status=Assessment.Status.APPROVED)
         AssessmentQuestion.objects.create(assessment=a, question=self.mcq, order=1, marks=1)
+        finish_fixture_exam(a)
         self.assertEqual(self.start(a).status_code, 201)
 
     def test_start_before_start_at_rejected(self):
         self.assessment.start_at = timezone.now() + timedelta(hours=1)
-        self.assessment.save(update_fields=("start_at",))
+        save_prepared_fixture(self.assessment, update_fields=("start_at",))
         self.assertEqual(self.start().status_code, 403)
 
     def test_start_after_end_at_rejected(self):
         self.assessment.end_at = timezone.now() - timedelta(seconds=1)
-        self.assessment.save(update_fields=("end_at",))
+        save_prepared_fixture(self.assessment, update_fields=("end_at",))
         self.assertEqual(self.start().status_code, 403)
 
     def test_assessment_without_questions_cannot_start(self):
         a = self.make_assessment(self, self.school, self.subject, self.group, self.staff)
-        self.assertEqual(self.start(a).status_code, 400)
+        with self.assertRaises(DjangoValidationError):
+            finish_fixture_exam(a)
+        self.assertEqual(self.start(a).status_code, 403)
 
     def test_invalid_duration_assessment_cannot_start(self):
         a = self.make_assessment(self, self.school, self.subject, self.group, self.staff, duration_minutes=0)
         AssessmentQuestion.objects.create(assessment=a, question=self.mcq, order=1, marks=1)
-        self.assertEqual(self.start(a).status_code, 400)
+        with self.assertRaises(DjangoValidationError):
+            finish_fixture_exam(a)
+        self.assertEqual(self.start(a).status_code, 403)
 
     def test_specific_candidate_access_is_not_enabled(self):
         self.assessment.candidate_access = Assessment.CandidateAccess.SPECIFIC_CANDIDATES
-        self.assessment.save(update_fields=("candidate_access",))
+        save_prepared_fixture(self.assessment, update_fields=("candidate_access",))
         self.assertEqual(self.start().status_code, 403)
 
     def test_access_code_mode_is_not_enabled(self):
         self.assessment.candidate_access = Assessment.CandidateAccess.ACCESS_CODE
-        self.assessment.save(update_fields=("candidate_access",))
-        self.assertEqual(self.start().status_code, 403)
+        with self.assertRaises(DjangoValidationError):
+            self.assessment.save(update_fields=("candidate_access",))
 
     def test_attempt_number_starts_at_one(self):
         self.assertEqual(self.begin().attempt_number, 1)
 
     def test_attempt_number_increments_for_same_candidate_and_assessment(self):
         self.assessment.attempt_limit = 2
-        self.assessment.save(update_fields=("attempt_limit",))
+        save_prepared_fixture(self.assessment, update_fields=("attempt_limit",))
         first = self.begin()
         first.status = Attempt.Status.SUBMITTED
         first.submitted_at = timezone.now()
@@ -222,7 +262,7 @@ class CandidateAttemptAPITests(APITestCase):
 
     def test_attempt_limit_two_allows_second_attempt(self):
         self.assessment.attempt_limit = 2
-        self.assessment.save(update_fields=("attempt_limit",))
+        save_prepared_fixture(self.assessment, update_fields=("attempt_limit",))
         first = self.begin()
         first.status = Attempt.Status.SUBMITTED
         first.save(update_fields=("status",))
@@ -242,7 +282,7 @@ class CandidateAttemptAPITests(APITestCase):
 
     def test_active_attempt_not_resumed_when_resume_disabled(self):
         self.assessment.resume_allowed = False
-        self.assessment.save(update_fields=("resume_allowed",))
+        save_prepared_fixture(self.assessment, update_fields=("resume_allowed",))
         self.begin()
         self.assertEqual(self.start().status_code, 409)
 
@@ -274,14 +314,14 @@ class CandidateAttemptAPITests(APITestCase):
 
     def test_random_question_order_is_stored(self):
         self.assessment.randomize_questions = True
-        self.assessment.save(update_fields=("randomize_questions",))
+        save_prepared_fixture(self.assessment, update_fields=("randomize_questions",))
         attempt = self.begin()
         self.assertEqual(attempt.attempt_questions.count(), 4)
         self.assertEqual(list(attempt.attempt_questions.values_list("order", flat=True)), [1, 2, 3, 4])
 
     def test_random_question_order_is_stable_after_refresh(self):
         self.assessment.randomize_questions = True
-        self.assessment.save(update_fields=("randomize_questions",))
+        save_prepared_fixture(self.assessment, update_fields=("randomize_questions",))
         attempt = self.begin()
         first = list(attempt.attempt_questions.values_list("question_id", flat=True))
         self.client.get(f"{self.base}{attempt.pk}/questions/")
@@ -289,14 +329,14 @@ class CandidateAttemptAPITests(APITestCase):
 
     def test_random_option_order_is_stored(self):
         self.assessment.randomize_options = True
-        self.assessment.save(update_fields=("randomize_options",))
+        save_prepared_fixture(self.assessment, update_fields=("randomize_options",))
         attempt = self.begin()
         row = attempt.attempt_questions.get(question=self.mcq)
         self.assertEqual(list(row.ordered_options.values_list("order", flat=True)), [1, 2, 3])
 
     def test_random_option_order_is_stable_after_refresh(self):
         self.assessment.randomize_options = True
-        self.assessment.save(update_fields=("randomize_options",))
+        save_prepared_fixture(self.assessment, update_fields=("randomize_options",))
         attempt = self.begin()
         path = self.question_url(attempt)
         first = self.client.get(path).data["options"]
@@ -493,7 +533,7 @@ class CandidateAttemptAPITests(APITestCase):
     def test_submission_uses_immediate_release_only_when_assessment_allows_it(self):
         self.assessment.result_visibility = Assessment.ResultVisibility.AFTER_SUBMISSION
         self.assessment.result_release_mode = Assessment.ResultReleaseMode.IMMEDIATE
-        self.assessment.save(update_fields=("result_visibility", "result_release_mode"))
+        save_prepared_fixture(self.assessment, update_fields=("result_visibility", "result_release_mode"))
         attempt = self.begin()
         self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
         result = Result.objects.get(attempt=attempt)
@@ -509,15 +549,10 @@ class CandidateAttemptAPITests(APITestCase):
         )
         for attempt_limit, (visibility, release_mode) in enumerate(policies, start=1):
             with self.subTest(visibility=visibility, release_mode=release_mode):
-                self.assessment.attempt_limit = attempt_limit
-                self.assessment.result_visibility = visibility
-                self.assessment.result_release_mode = release_mode
-                self.assessment.end_at = timezone.now() + timedelta(hours=1)
-                Assessment.objects.filter(pk=self.assessment.pk).update(
-                    attempt_limit=attempt_limit, result_visibility=visibility,
-                    result_release_mode=release_mode, end_at=self.assessment.end_at,
-                )
-                self.assessment.refresh_from_db()
+                self.assessment = self.make_assessment(self, self.school, self.subject, self.group, self.staff,
+                    result_visibility=visibility, result_release_mode=release_mode)
+                AssessmentQuestion.objects.create(assessment=self.assessment, question=self.mcq, order=1, marks=1)
+                finish_fixture_exam(self.assessment)
                 attempt = self.begin()
                 self.client.post(f"{self.base}{attempt.pk}/submit/", {}, format="json")
                 self.assertEqual(Result.objects.get(attempt=attempt).status, Result.Status.PROVISIONAL)
@@ -556,7 +591,8 @@ class CandidateAttemptAPITests(APITestCase):
 
     def test_staff_cannot_list_attempts_for_other_tenant(self):
         self.client.force_authenticate(self.foreign_user)
-        self.start(self.foreign_assessment)
+        self.assertEqual(self.start(self.foreign_assessment).status_code, 201)
+        InstitutionMembership.objects.filter(user=self.staff, institution=self.other_school).update(is_active=False)
         self.client.force_authenticate(self.staff)
         response = self.client.get(self.base)
         self.assertNotIn(self.foreign_assessment.pk, [row.get("assessment_id") for row in response.data])
@@ -626,8 +662,9 @@ class CandidateAttemptAPITests(APITestCase):
     def test_assessment_question_set_cannot_be_changed_after_scheduling(self):
         attempt = self.begin()
         self.client.force_authenticate(self.staff)
-        response = self.client.post(f"/api/v1/assessments/{self.assessment.pk}/questions/", {"question": self.mcq.pk, "order": 9, "marks": "1.00"}, format="json")
-        self.assertIn(response.status_code, (403, 404))
+        response = self.client.post(f"/api/v1/assessments/{self.assessment.pk}/questions/", {"question": self.mcq.pk, "order": 9, "marks": "1.00"}, format="json",
+            HTTP_X_INSTITUTION_ID=str(self.school.pk))
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(attempt.attempt_questions.count(), 4)
 
     def test_unauthenticated_attempt_endpoint_is_protected(self):

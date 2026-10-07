@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
 import LogoWordmark from '../components/common/LogoWordmark.jsx'
@@ -7,7 +7,7 @@ import LanguageModeControl from '../components/common/LanguageModeControl.jsx'
 import AccountMenu from '../components/common/AccountMenu.jsx'
 import { useLanguageMode } from '../context/LanguageModeContext.jsx'
 import { useWorkspace } from '../context/WorkspaceContext.jsx'
-import { canAccessStaffCapability } from '../utils/staffCapabilities.js'
+import { canAccessWorkspaceCapability } from '../utils/staffCapabilities.js'
 
 const navigation = [
   ['/app', 'Dashboard', 'home', true, 'dashboard'],
@@ -25,7 +25,7 @@ const navigation = [
 
 function StaffNavigation({ onNavigate }) {
   const { label: localizedLabel } = useLanguageMode()
-  const { currentRole } = useWorkspace()
+  const { currentRole, currentWorkspace } = useWorkspace()
   const arabicTranslations = {
     Candidates: 'المرشحون',
     Dashboard: '\u0644\u0648\u062d\u0629 \u0627\u0644\u062a\u062d\u0643\u0645', Students: '\u0627\u0644\u0637\u0644\u0627\u0628',
@@ -38,10 +38,10 @@ function StaffNavigation({ onNavigate }) {
   }
   return (
     <nav className="app-navigation" aria-label="Institution navigation">
-      {navigation.filter(([, , , , capability]) => canAccessStaffCapability(currentRole, capability)).map(([to, label, icon, end]) => (
+      {navigation.filter(([, , , , capability]) => canAccessWorkspaceCapability(currentRole, capability, currentWorkspace?.institution.workspace_mode)).map(([to, label, icon, end]) => (
         <NavLink key={to} to={to} end={end} title={label} onClick={onNavigate} className={({ isActive }) => `app-navigation__link${isActive ? ' is-active' : ''}`}>
           <Icon name={icon} />
-          <span>{localizedLabel(label, arabicTranslations[label] || label)}</span>
+          <span>{localizedLabel(label === 'Dashboard' && currentWorkspace?.institution.workspace_mode === 'managed_exam' ? 'Overview' : label, label === 'Dashboard' && currentWorkspace?.institution.workspace_mode === 'managed_exam' ? '\u0646\u0638\u0631\u0629 \u0639\u0627\u0645\u0629' : arabicTranslations[label] || label)}</span>
         </NavLink>
       ))}
     </nav>
@@ -51,7 +51,7 @@ function StaffNavigation({ onNavigate }) {
 export default function StaffLayout() {
   const { direction } = useLanguageMode()
   const { label: localizedLabel } = useLanguageMode()
-  const { currentWorkspace, currentRole, workspaces, selectWorkspace } = useWorkspace()
+  const { currentWorkspace, currentRole, workspaces, selectWorkspace, clearSelection } = useWorkspace()
   const [menuOpen, setMenuOpen] = useState(false)
   const closeMenu = () => setMenuOpen(false)
   const roleLabels = { platform_admin: 'Platform administrator', institution_admin: 'Workspace administrator', teacher: 'Teacher', examiner: 'Examiner' }
@@ -62,7 +62,7 @@ export default function StaffLayout() {
   }
 
   return (
-    <div className="staff-layout" dir={direction}>
+    <div className={`staff-layout${currentWorkspace?.institution.workspace_mode === 'managed_exam' ? ' staff-layout--managed' : ''}`} dir={direction}>
       <aside className="staff-sidebar">
         <LogoWordmark light to="/app" />
         <StaffNavigation />
@@ -79,13 +79,14 @@ export default function StaffLayout() {
           <button className="icon-button mobile-menu-button" type="button" aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
           <LogoWordmark light compact to="/app" />
           <div className="staff-mobile-workspace">
-            <span className="institution-context__label">{localizedLabel('Current workspace', 'مساحة العمل الحالية')}</span>
+            <span className="institution-context__label">{localizedLabel(currentRole === 'platform_admin' ? 'Managing' : 'Current workspace', currentRole === 'platform_admin' ? '\u0625\u062f\u0627\u0631\u0629' : 'مساحة العمل الحالية')}</span>
             {workspaces.length > 1 ? (
               <select aria-label="Select workspace" value={currentWorkspace?.institution.id || ''} onChange={event => selectWorkspace(event.target.value)}>
                 {workspaces.map(item => <option key={item.institution.id} value={item.institution.id}>{item.institution.name}</option>)}
               </select>
             ) : <strong>{currentWorkspace?.institution.name}</strong>}
             <span className="workspace-role-label">{localizedLabel(roleLabels[currentRole] || currentRole, roleArabicTranslations[currentRole] || currentRole)}</span>
+            {currentRole === 'platform_admin' && <Link className="managed-context" to="/platform" onClick={clearSelection}>{localizedLabel('Return to Platform', '\u0627\u0644\u0639\u0648\u062f\u0629 \u0625\u0644\u0649 \u0627\u0644\u0645\u0646\u0635\u0629')}</Link>}
           </div>
           <LanguageModeControl />
           <AccountMenu />
@@ -93,13 +94,14 @@ export default function StaffLayout() {
 
         <header className="staff-topbar">
           <div className="institution-context">
-            <span className="institution-context__label">{localizedLabel('Current workspace', '\u0645\u0633\u0627\u062d\u0629 \u0627\u0644\u0639\u0645\u0644 \u0627\u0644\u062d\u0627\u0644\u064a\u0629')}</span>
+            <span className="institution-context__label">{localizedLabel(currentRole === 'platform_admin' ? 'Managing' : 'Current workspace', currentRole === 'platform_admin' ? '\u0625\u062f\u0627\u0631\u0629' : '\u0645\u0633\u0627\u062d\u0629 \u0627\u0644\u0639\u0645\u0644 \u0627\u0644\u062d\u0627\u0644\u064a\u0629')}</span>
             {workspaces.length > 1 ? (
               <select className="form-control workspace-switcher" aria-label="Select workspace" value={currentWorkspace?.institution.id || ''} onChange={event => selectWorkspace(event.target.value)}>
                 {workspaces.map(item => <option key={item.institution.id} value={item.institution.id}>{item.institution.name} · {localizedLabel(roleLabels[item.role] || item.role, roleArabicTranslations[item.role] || item.role)}</option>)}
               </select>
             ) : <strong>{currentWorkspace?.institution.name}</strong>}
             <span className="workspace-role-label">{localizedLabel(roleLabels[currentRole] || currentRole, roleArabicTranslations[currentRole] || currentRole)}</span>
+            {currentRole === 'platform_admin' && <Link className="managed-context" to="/platform" onClick={clearSelection}>{localizedLabel('Return to Platform', '\u0627\u0644\u0639\u0648\u062f\u0629 \u0625\u0644\u0649 \u0627\u0644\u0645\u0646\u0635\u0629')}</Link>}
           </div>
           <div className="staff-topbar__actions">
             <LanguageModeControl />

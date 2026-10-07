@@ -1,0 +1,38 @@
+.platform-board { min-height: 100dvh; background: var(--color-page-bg); }
+.platform-header { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .8rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-white); }
+.platform-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-inline-start: auto; }
+.platform-nav { display: flex; flex-wrap: wrap; gap: .3rem; padding: .4rem 1.5rem; background: var(--color-white); border-bottom: 1px solid var(--color-border); }
+.platform-nav a { padding: .5rem .75rem; border-radius: .3rem; color: var(--color-text); text-decoration: none; }
+.platform-nav a.active { background: var(--color-brand-light); color: var(--color-brand-dark); }
+.platform-content { max-width: 1240px; margin-inline: auto; padding: 1.25rem 1.5rem; min-width: 0; }
+.platform-content h1, .managed-board h1 { font-size: 1.5rem; margin-block: .6rem 1rem; overflow-wrap: anywhere; }
+.platform-content h2 { font-size: 1.1rem; margin-block: 1.25rem .6rem; }
+.platform-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.platform-summary { display: flex; flex-wrap: wrap; gap: .65rem 1.5rem; margin: .6rem 0 1.2rem; padding: .8rem 0; border-block: 1px solid var(--color-border); }
+.platform-summary div { display: flex; align-items: baseline; gap: .5rem; }
+.platform-summary dt { font-size: .9rem; color: var(--color-muted); }
+.platform-summary dd { margin: 0; font-size: 1.1rem; font-weight: 650; }
+.platform-search { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; margin-block: 1rem; }
+.platform-search label, .platform-form label { display: grid; gap: .35rem; min-width: 0; }
+.platform-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 680px; gap: .8rem; margin-block: .8rem; }
+.platform-form p { grid-column: 1 / -1; margin: 0; }
+.platform-form input, .platform-form select, .platform-search input { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--color-border); border-radius: .35rem; background: var(--color-white); padding: .55rem .65rem; color: var(--color-text); font: inherit; }
+.platform-permission { display: flex; align-items: start; gap: .6rem; margin-block: 1.2rem; max-width: 680px; }
+.platform-permission input { margin-block-start: .25rem; flex: none; }
+.platform-admins { padding-inline-start: 1.2rem; overflow-wrap: anywhere; }
+.platform-link { color: var(--color-brand-dark); border: 0; padding: 0; background: none; text-align: start; cursor: pointer; font: inherit; }
+.platform-content .exam-table-scroll { max-width: 100%; }
+.platform-content .exam-table td small { display: block; }
+.staff-layout--managed .exam-page h1 { font-size: 1.5rem; }
+.staff-layout--managed .outcome-summary { display: flex; flex-wrap: wrap; gap: .6rem 1rem; }
+.staff-layout--managed .outcome-summary .exam-panel { display: flex; align-items: baseline; gap: .5rem; padding: .6rem; }
+.staff-layout--managed .outcome-summary strong { font-size: 1.1rem; }
+.managed-context { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .8rem; font-size: .85rem; }
+.staff-mobile-workspace .managed-context { color: var(--color-white); width: fit-content; }
+@media (max-width: 650px) {
+  .platform-header, .platform-nav { padding-inline: .8rem; }
+  .platform-content { padding: .8rem; }
+  .platform-form { grid-template-columns: minmax(0, 1fr); }
+  .platform-header-actions { margin-inline-start: 0; width: 100%; }
+  .platform-search label { flex: 1 1 100%; }
+}

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from './AuthContext.jsx'
 import { apiFetch, setInstitutionContext } from '../services/api.js'
 import { createdWorkspaceContext } from '../services/onboarding.js'
+import { initialWorkspace, validWorkspaces } from '../utils/workspaceSelection.js'
 
 const WorkspaceContext = createContext(null)
 const STORAGE_PREFIX = 'school-assessment.active-workspace.'
@@ -29,6 +30,7 @@ function writeStoredWorkspace(userId, workspaceId) {
 export function WorkspaceProvider({ children }) {
   const { user, loading: authLoading } = useAuth()
   const [workspaces, setWorkspaces] = useState([])
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false)
   const [currentWorkspace, setCurrentWorkspace] = useState(null)
   const [loading, setLoading] = useState(true)
   const [resolvedUserId, setResolvedUserId] = useState(null)
@@ -53,6 +55,7 @@ export function WorkspaceProvider({ children }) {
 
     setInstitutionContext(null)
     setWorkspaces([])
+    setIsPlatformAdmin(false)
     setCurrentWorkspace(null)
     setError(null)
     setResolvedUserId(null)
@@ -69,12 +72,11 @@ export function WorkspaceProvider({ children }) {
     async function loadWorkspaces() {
       try {
         const response = await apiFetch('auth/context/')
-        const available = Array.isArray(response?.workspaces) ? response.workspaces.filter(
-          item => Number.isInteger(item?.institution?.id) && typeof item?.institution?.name === 'string' && typeof item?.role === 'string',
-        ) : []
+        const available = validWorkspaces(response)
         if (cancelled || version !== requestVersion.current) return
 
         setWorkspaces(available)
+        setIsPlatformAdmin(response.is_platform_admin === true)
         const storedId = readStoredWorkspace(userId)
         const storedSelection = storedId == null ? null : available.find(
           item => String(item.institution.id) === storedId,
@@ -83,10 +85,10 @@ export function WorkspaceProvider({ children }) {
         // An old selection is never trusted. A sole currently authorized workspace
         // can still be selected automatically; multi-workspace users choose explicitly.
         if (storedId && !storedSelection) writeStoredWorkspace(userId, null)
-        const selected = available.length === 1 ? available[0] : storedSelection
+        const selected = initialWorkspace(available, response.is_platform_admin === true, storedSelection)
         setCurrentWorkspace(selected)
         setInstitutionContext(selected?.institution.id ?? null)
-        if (available.length === 1) writeStoredWorkspace(userId, available[0].institution.id)
+        if (available.length === 1 && response.is_platform_admin !== true) writeStoredWorkspace(userId, available[0].institution.id)
       } catch (requestError) {
         if (!cancelled && version === requestVersion.current) setError(requestError)
       } finally {
@@ -110,9 +112,10 @@ export function WorkspaceProvider({ children }) {
     setCurrentWorkspace(null)
     setInstitutionContext(null)
     try {
-      const { workspaces: available, selected } = await createdWorkspaceContext(apiFetch, userId, institutionId)
+      const { workspaces: available, selected, isPlatformAdmin: refreshedPlatformAccess } = await createdWorkspaceContext(apiFetch, userId, institutionId)
       if (version !== requestVersion.current || activeUserId.current !== userId) throw new Error('Account access changed. Try again.')
       setWorkspaces(available)
+      setIsPlatformAdmin(refreshedPlatformAccess)
       setCurrentWorkspace(selected)
       setInstitutionContext(selected.institution.id)
       writeStoredWorkspace(userId, selected.institution.id)
@@ -143,6 +146,8 @@ export function WorkspaceProvider({ children }) {
   const contextLoading = authLoading || loading || (user?.id ?? null) !== resolvedUserId
   const value = useMemo(() => ({
     workspaces,
+    isPlatformAdmin,
+    resolvedUserId,
     currentWorkspace,
     currentRole: currentWorkspace?.role ?? null,
     loading: contextLoading,
@@ -152,7 +157,7 @@ export function WorkspaceProvider({ children }) {
     clearSelection,
     retry,
     refreshAndSelect,
-  }), [workspaces, currentWorkspace, contextLoading, error, selectWorkspace, clearSelection, retry, refreshAndSelect])
+  }), [workspaces, isPlatformAdmin, resolvedUserId, currentWorkspace, contextLoading, error, selectWorkspace, clearSelection, retry, refreshAndSelect])
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
 }

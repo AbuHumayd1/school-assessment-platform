@@ -8,6 +8,7 @@ import { clearQuickAttempt, createExamAdapter, endQuickAccess, endQuickAccessBef
 import { quickExamTranslate } from '../../utils/quickExamLocale.js'
 import { createQuickTabOwner } from '../../utils/quickTabOwnership.js'
 import '../../styles/quick-exam.css'
+import ImmediateScore from '../../components/student/ImmediateScore.jsx'
 
 const AccessContext = createContext(null)
 const failure = 'We could not complete this request. Check your connection and try again.'
@@ -129,13 +130,19 @@ export function QuickEntryPage() {
 }
 
 const availabilityLabels = { available: 'Ready to start', in_progress: 'Resume available', upcoming: 'Not yet available', ended: 'Examination window ended', attempt_limit_reached: 'No attempts remaining', unavailable: 'Examination unavailable' }
+const availabilityReasons = {
+  upcoming: 'Exam has not started yet.', ended: 'Exam has ended.',
+  not_open: 'Exam is not open for candidates.', not_eligible: 'Candidate is not eligible.',
+  not_ready: 'Exam is not ready for candidates.', attempt_limit_reached: 'No attempts remaining.',
+  resume_disabled: 'This exam cannot be resumed.',
+}
 export function QuickInstructionsView({ session, t = text => text, locale = 'en', busy, error, onStart }) {
   const { candidate, assessment, availability } = session
-  const date = value => value ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : null
+  const date = value => value ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: assessment.timezone || undefined }).format(new Date(value)) : null
   const facts = [['Candidate', [candidate.first_name, candidate.last_name].filter(Boolean).join(' ') || candidate.candidate_id], ['Candidate ID', candidate.candidate_id], ['Duration', t(`${assessment.duration_minutes} min`)], ['Questions', assessment.question_count], ['Attempts remaining', availability.attempts_remaining], ['Starts', date(assessment.start_at)], ['Ends', date(assessment.end_at)]]
   const resumable = availability.state === 'in_progress'
   return <section className="quick-exam-briefing" aria-labelledby="quick-briefing-title">
-    <div className="quick-exam-briefing__heading"><p className="quick-exam-briefing__eyebrow">{t('Examination briefing')}</p><h1 id="quick-briefing-title" dir="auto">{assessment.title}</h1><p className="quick-exam-briefing__status" role="status">{t(resumable && !availability.can_resume ? 'Examination unavailable' : availabilityLabels[availability.state] || 'Examination unavailable')}</p></div>
+    <div className="quick-exam-briefing__heading"><p className="quick-exam-briefing__eyebrow">{t('Examination briefing')}</p><h1 id="quick-briefing-title" dir="auto">{assessment.title}</h1><p className="quick-exam-briefing__status" role="status">{t(availabilityReasons[availability.reason] || (resumable && !availability.can_resume ? 'This exam cannot be resumed.' : availabilityLabels[availability.state] || 'Examination unavailable'))}</p></div>
     <div className="quick-exam-briefing__grid">
       <article className="quick-exam-briefing__guidance"><h2>{t('Examination instructions')}</h2>{assessment.description && <p className="quick-exam-briefing__description" dir="auto">{assessment.description}</p>}
         <ul><li>{t('Read each question carefully. Answers save automatically.')}</li><li>{t('Stay on the examination page. Leaving is recorded and repeated interruptions may submit your attempt.')}</li></ul>
@@ -148,7 +155,7 @@ export function QuickInstructionsView({ session, t = text => text, locale = 'en'
 }
 
 function Instructions() {
-  const { session } = useContext(AccessContext); const t = useCopy(); const { locale } = usePublicLocale(); const navigate = useNavigate()
+  const { session, refresh } = useContext(AccessContext); const t = useCopy(); const { locale } = usePublicLocale(); const navigate = useNavigate()
   const { owner, phase, setPhase } = useQuickClient()
   const [busy, setBusy] = useState(false); const [error, setError] = useState('')
   async function start(takeover = false) {
@@ -161,7 +168,10 @@ function Instructions() {
     } catch (requestError) {
       owner.release()
       if (requestError.status === 401) { clearQuickAttempt(); setPhase('expired') }
-      else if (requestError.code !== 'quick_client_inactive') setError(t(failure))
+      else if (requestError.code !== 'quick_client_inactive') {
+        setError(t(availabilityReasons[requestError.data?.reason] || failure))
+        if ([400, 403].includes(requestError.status)) await refresh()
+      }
     } finally { setBusy(false) }
   }
   if (['blocked', 'inactive', 'expired'].includes(phase)) return <QuickClientNotice t={t} expiredAccess={phase === 'expired'} inactive={phase === 'inactive'} onTakeover={() => start(true)} busy={busy} />
@@ -204,20 +214,20 @@ function Runner() {
 }
 export function QuickAttemptPage() { return <AccessGate><Runner /></AccessGate> }
 
-export function QuickCompletionView({ status, t = text => text, busy, error, onDone }) {
-  return <section className="quick-exam-completion"><p>{t('Submission received')}</p><h1>{t(status === 'expired' ? 'Time’s Up' : 'Exam Submitted')}</h1><p>{t('Your saved answers have been received. Your institution will provide result information.')}</p>{error && <p role="alert">{error}</p>}<Button onClick={onDone} loading={busy}>{t('Done')}</Button></section>
+export function QuickCompletionView({ status, score, t = text => text, busy, error, onDone }) {
+  return <section className="quick-exam-completion"><p>{t('Submission received')}</p><h1>{t(status === 'expired' ? 'Time’s Up' : score ? 'Exam submitted successfully' : 'Exam Submitted')}</h1><p>{t('Your saved answers have been received. Your institution will provide result information.')}</p><ImmediateScore score={['submitted', 'expired'].includes(status) ? score : null} t={t} />{error && <p role="alert">{error}</p>}<Button onClick={onDone} loading={busy}>{t('Done')}</Button></section>
 }
 function Completion() {
-  const t = useCopy(); const navigate = useNavigate(); const [status, setStatus] = useState(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
+  const t = useCopy(); const navigate = useNavigate(); const [status, setStatus] = useState(null); const [score, setScore] = useState(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
   const check = useCallback(async () => {
     setError('')
-    try { const attempt = await apiFetch('quick-exam/attempt/'); if (['submitted', 'expired'].includes(attempt.status)) setStatus(attempt.status); else navigate('/take-exam/instructions', { replace: true }) }
+    try { const attempt = await apiFetch('quick-exam/attempt/'); if (['submitted', 'expired'].includes(attempt.status)) { setStatus(attempt.status); setScore(attempt.immediate_score) } else navigate('/take-exam/instructions', { replace: true }) }
     catch (requestError) { if (requestError.status === 401) navigate('/take-exam', { replace: true, state: { reverify: true } }); else if (requestError.status === 404) navigate('/take-exam/instructions', { replace: true }); else setError(t(failure)) }
   }, [navigate, t])
   useEffect(() => { check() }, [check])
   async function done() { setBusy(true); setError(''); try { await endQuickAccess(apiFetch); clearQuickAttempt(); navigate('/take-exam', { replace: true }) } catch { setError(t(failure)) } finally { setBusy(false) } }
   if (!status) return <section className="quick-exam-panel"><p role={error ? 'alert' : 'status'}>{error || t('Loading examination information...')}</p>{error && <Button onClick={check}>{t('Retry')}</Button>}</section>
-  return <QuickCompletionView status={status} t={t} busy={busy} error={error} onDone={done} />
+  return <QuickCompletionView status={status} score={score} t={t} busy={busy} error={error} onDone={done} />
 }
 export function QuickCompletePage() { return <AccessGate><Completion /></AccessGate> }
 

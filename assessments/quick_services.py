@@ -11,6 +11,7 @@ from audit.services import record_event
 from candidates.models import Candidate
 from tenants.querysets import can_manage_institution
 from .models import Assessment, QuickExamConfiguration, QuickExamCredential, QuickExamSession
+from .eligibility import directly_assigned_candidates
 
 
 PIN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -25,8 +26,11 @@ class QuickAccessConflict(APIException):
 def _authorize(actor, assessment):
     if not actor or not actor.is_authenticated or not actor.is_active or not can_manage_institution(actor, assessment.institution_id, {"institution_admin"}):
         raise PermissionDenied("Only an authorized institution administrator can manage Quick Exam access.")
-    if assessment.candidate_access != Assessment.CandidateAccess.ACCESS_CODE:
-        raise ValidationError({"assessment": "Configure the assessment for access-code delivery first."})
+    from institutions.permissions import is_platform_administrator
+    if assessment.institution.workspace_mode == "managed_exam" and not is_platform_administrator(actor):
+        raise PermissionDenied("Examination preparation requires platform administration.")
+    if assessment.candidate_access not in {Assessment.CandidateAccess.ACCESS_CODE, Assessment.CandidateAccess.SPECIFIC_CANDIDATES}:
+        raise ValidationError({"assessment": "Quick Exam supports Specific Candidates eligibility. Choose Specific Candidates first."})
 
 
 def _save(instance):
@@ -67,6 +71,8 @@ def configure_quick_access(assessment, actor, *, exam_code=UNSET, enabled=UNSET)
     configuration = QuickExamConfiguration.objects.select_for_update().filter(assessment=assessment).first()
     created = configuration is None
     if created:
+        if assessment.candidate_access != Assessment.CandidateAccess.ACCESS_CODE:
+            raise ValidationError({"assessment": "Delivery method is fixed when the exam is created. This exam uses account delivery."})
         if exam_code is UNSET:
             raise ValidationError({"exam_code": "An exam code is required."})
         configuration = QuickExamConfiguration(assessment=assessment, exam_code=exam_code)
@@ -111,12 +117,16 @@ def _locked_context(configuration, candidate, actor, *, issuing=False):
         raise NotFound()
     if issuing and (candidate.status != Candidate.Status.ACTIVE or assessment.status == Assessment.Status.ARCHIVED):
         raise ValidationError({"detail": "Issue credentials only for active candidates and non-archived assessments."})
+    if issuing and assessment.candidate_access == Assessment.CandidateAccess.SPECIFIC_CANDIDATES and not directly_assigned_candidates(assessment).filter(pk=candidate.pk).exists():
+        raise ValidationError({"candidate": "Assign this active candidate to the exam before generating credentials."})
     return configuration, candidate
 
 
 @transaction.atomic
 def generate_credential(configuration, candidate, actor, *, expires_at=None):
     configuration, candidate = _locked_context(configuration, candidate, actor, issuing=True)
+    if not directly_assigned_candidates(configuration.assessment).filter(pk=candidate.pk).exists():
+        raise ValidationError({"candidate": "Assign this active candidate to the exam before generating credentials."})
     if QuickExamCredential.objects.filter(configuration=configuration, candidate=candidate).exists():
         raise QuickAccessConflict()
     pin = "".join(secrets.choice(PIN_ALPHABET) for _ in range(10))
@@ -170,10 +180,53 @@ def _credential_valid(credential, now):
     assessment = configuration.assessment
     return bool(credential.active and credential.revoked_at is None and configuration.enabled
                 and (credential.expires_at is None or now < credential.expires_at)
-                and assessment.candidate_access == Assessment.CandidateAccess.ACCESS_CODE
+                and assessment.candidate_access in {Assessment.CandidateAccess.ACCESS_CODE, Assessment.CandidateAccess.SPECIFIC_CANDIDATES}
+                and (assessment.candidate_access == Assessment.CandidateAccess.ACCESS_CODE
+                     or assessment.candidate_assignments.filter(candidate_id=credential.candidate_id).exists())
                 and assessment.institution.is_active
                 and credential.candidate.status == Candidate.Status.ACTIVE
                 and credential.candidate.institution_id == assessment.institution_id)
+
+
+def credential_counts(configuration):
+    candidates = directly_assigned_candidates(configuration.assessment)
+    credentials = configuration.credentials.filter(candidate__in=candidates)
+    now = timezone.now()
+    from django.db.models import Q
+    valid = credentials.filter(active=True, revoked_at__isnull=True).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).count()
+    assigned = candidates.count()
+    missing = candidates.exclude(quick_credentials__configuration=configuration).count()
+    return {"assigned_count": assigned, "generated_count": valid, "needed_count": assigned - valid,
+            "generatable_count": missing, "reset_needed_count": assigned - valid - missing}
+
+
+@transaction.atomic
+def generate_assigned_credentials(configuration, actor, *, expected_count=None):
+    # Candidate -> assessment -> configuration matches the existing Quick lock order.
+    candidate_ids = directly_assigned_candidates(configuration.assessment).values_list("pk", flat=True)
+    candidates = list(Candidate.objects.select_for_update().filter(pk__in=candidate_ids).order_by("pk")[:1001])
+    assessment = Assessment.objects.select_for_update().select_related("institution").get(pk=configuration.assessment_id)
+    _authorize(actor, assessment)
+    configuration = QuickExamConfiguration.objects.select_for_update().get(pk=configuration.pk, assessment=assessment)
+    configuration.assessment = assessment
+    if assessment.status != Assessment.Status.DRAFT or assessment.attempts.exists():
+        raise ValidationError({"assessment": "Generate credentials only while the exam is editable and has no participation."})
+    if not configuration.enabled:
+        raise ValidationError({"assessment": "Enable Quick Exam access before generating usable credentials."})
+    eligible_ids = set(directly_assigned_candidates(assessment).values_list("pk", flat=True))
+    if eligible_ids != {candidate.pk for candidate in candidates}:
+        raise ValidationError({"detail": "Candidate assignments changed or exceed 1000. Refresh and try again."})
+    existing = set(configuration.credentials.values_list("candidate_id", flat=True))
+    missing = [candidate for candidate in candidates if candidate.pk not in existing]
+    if expected_count is not None and expected_count != len(missing):
+        raise ValidationError({"detail": "Credential counts changed. Refresh before generating credentials."})
+    if not missing:
+        raise ValidationError({"detail": "No assigned active candidates need new credentials. Existing PINs are not regenerated."})
+    issued = []
+    for candidate in sorted(missing, key=lambda c: (c.candidate_id, c.pk)):
+        credential, pin = generate_credential(configuration, candidate, actor)
+        issued.append((candidate, pin))
+    return configuration, issued
 
 
 def verify_credential(credential, pin, *, now=None):

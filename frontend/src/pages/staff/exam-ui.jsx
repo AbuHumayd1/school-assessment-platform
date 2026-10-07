@@ -3,13 +3,15 @@ import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 import Button from '../../components/common/Button.jsx'
 import { createOwnerScope } from '../../services/assessments.js'
 import { examCopy } from './exam-copy.js'
+import { setupCopy } from './setup-copy.js'
+import { outcomesCopy } from './outcomes-copy.js'
 import './exams.css'
 
 export function useExamCopy() {
   const { label, direction } = useLanguageMode()
   return { t: text => {
     const count = text.match(/^(Question|questions) (\d+)$|^(\d+) questions$/)
-    const arabic = count ? `${count[1] === 'Question' ? 'السؤال' : 'الأسئلة'} ${count[2] || count[3]}` : examCopy[text] || text
+    const arabic = count ? `${count[1] === 'Question' ? 'السؤال' : 'الأسئلة'} ${count[2] || count[3]}` : setupCopy[text] || outcomesCopy[text] || examCopy[text] || text
     const english = text.includes('_') ? text.replaceAll('_', ' ').replace(/^./, value => value.toUpperCase()) : text.replace(/^./, value => value.toUpperCase())
     const actions = { 'submit-review': 'Submit for Review', 'request-changes': 'Request Changes', approve: 'Approve', schedule: 'Schedule', reopen: 'Reopen', archive: 'Archive' }
     return label(actions[text] || english, arabic)

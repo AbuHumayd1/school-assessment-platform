@@ -23,8 +23,9 @@ from tenants.models import InstitutionMembership
 
 class PhaseFiveSecurityTests(APITestCase):
     def setUp(self):
-        self.a = Institution.objects.create(name="Security Academy A")
-        self.b = Institution.objects.create(name="Security Academy B")
+        # Publication privacy/audit tests require explicitly authorized release.
+        self.a = Institution.objects.create(name="Security Academy A", can_release_candidate_results=True)
+        self.b = Institution.objects.create(name="Security Academy B", can_release_candidate_results=True)
         self.admin_a = self.make_user("admin-a-sec@example.test", self.a, "institution_admin")
         self.examiner_a = self.make_user("examiner-a-sec@example.test", self.a, "examiner")
         self.teacher_a = self.make_user("teacher-a-sec@example.test", self.a, "teacher")

@@ -96,6 +96,7 @@ class CandidateNavigationSerializer(serializers.ModelSerializer):
 
 
 class CandidateAttemptSerializer(serializers.ModelSerializer):
+    immediate_score = serializers.SerializerMethodField()
     assessment_title = serializers.CharField(source="assessment.title", read_only=True)
     assessment_type = serializers.CharField(source="assessment.assessment_type", read_only=True)
     duration_minutes = serializers.IntegerField(source="assessment.duration_minutes", read_only=True)
@@ -111,11 +112,15 @@ class CandidateAttemptSerializer(serializers.ModelSerializer):
         fields = (
             "id", "assessment_title", "assessment_type", "duration_minutes", "attempt_number", "status",
             "started_at", "expires_at", "submitted_at", "total_questions", "answered_count",
-            "unanswered_count", "marked_for_review_count", "remaining_seconds", "server_time",
+            "unanswered_count", "marked_for_review_count", "remaining_seconds", "server_time", "immediate_score",
         )
 
     def get_total_questions(self, obj):
         return obj.attempt_questions.count()
+
+    def get_immediate_score(self, obj):
+        from results.immediate_score import immediate_score
+        return immediate_score(obj, self.context.get("request"))
 
     def get_answered_count(self, obj):
         return AnswerSelection.objects.filter(answer__attempt=obj).values("answer_id").distinct().count()

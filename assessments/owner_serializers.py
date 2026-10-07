@@ -21,7 +21,7 @@ class InspectionQuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
-        fields = ("id", "text", "question_type", "options", "media", "explanation", "topic", "topic_name", "difficulty", "status")
+        fields = ("id", "text", "question_type", "marks", "options", "media", "explanation", "topic", "topic_name", "difficulty", "status")
         read_only_fields = fields
 
 

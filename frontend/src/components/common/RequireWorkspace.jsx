@@ -34,6 +34,8 @@ export default function RequireWorkspace({ children }) {
     )
   }
 
+  if (workspace.isPlatformAdmin && !workspace.currentWorkspace) return <Navigate to="/platform" replace />
+
   if (workspace.accessState === 'no_workspace') {
     return (
       <main className="workspace-access" dir={direction}>

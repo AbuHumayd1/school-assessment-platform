@@ -52,6 +52,8 @@ class AuthenticatedWorkspaceContextTests(APITestCase):
                 "name": self.first.name,
                 "slug": self.first.slug,
                 "institution_type": self.first.institution_type,
+                "workspace_mode": "full_workspace",
+                "can_release_candidate_results": False,
             },
             "role": InstitutionMembership.Role.TEACHER,
         }])

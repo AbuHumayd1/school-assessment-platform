@@ -42,7 +42,7 @@ export default function StudentExamsPage() {
   }, [requestedTab, searchParams])
 
   const filtered = useMemo(() => exams.filter(exam => {
-    const matchesSearch = `${exam.title} ${exam.subject.name} ${exam.group.name}`.toLowerCase().includes(search.trim().toLowerCase())
+    const matchesSearch = `${exam.title} ${exam.subject.name} ${exam.group?.name || ''}`.toLowerCase().includes(search.trim().toLowerCase())
     return belongsToTab(exam, activeTab) && matchesSearch && (subject === 'all' || exam.subject.name === subject)
   }), [exams, activeTab, search, subject])
 
@@ -79,7 +79,7 @@ export default function StudentExamsPage() {
     const state = exam.status
     const startable = exam.can_start || exam.can_resume
     return <Card as="article" className="exam-before-start exam-before-start--featured" aria-labelledby="before-start-title">
-      <div className="exam-featured-meta"><div><ExamStatusBadge state={state} /><Badge>{exam.subject.name}</Badge><Badge>{exam.group.name}</Badge></div><span><Icon name="clock" size={16} />{state === 'upcoming' ? `Starts ${formatCandidateDate(exam.start_at, portal.institution?.timezone)}` : state === 'completed' ? 'Assessment window ended or attempts used' : 'Available now'}</span></div>
+      <div className="exam-featured-meta"><div><ExamStatusBadge state={state} /><Badge>{exam.subject.name}</Badge>{exam.group?.name && <Badge>{exam.group.name}</Badge>}</div><span><Icon name="clock" size={16} />{state === 'upcoming' ? `Starts ${formatCandidateDate(exam.start_at, portal.institution?.timezone)}` : state === 'completed' ? 'Assessment window ended or attempts used' : 'Available now'}</span></div>
       <div className="exam-before-start__heading"><div><h2 id="before-start-title">{exam.title}</h2><p>{exam.assessment_type_label}</p></div></div>
       <div className="exam-detail-facts exam-detail-facts--wide"><span><small>Duration</small><strong>{exam.duration_minutes} minutes</strong></span><span><small>Assessment type</small><strong>{exam.assessment_type_label}</strong></span><span><small>Total marks</small><strong>{exam.total_marks}</strong></span><span><small>Attempts</small><strong>{exam.attempts_used} used · {exam.attempts_remaining} remaining of {exam.attempt_limit}</strong></span><span><small>Start time</small><strong>{formatCandidateDate(exam.start_at, portal.institution?.timezone)}</strong></span><span><small>End time</small><strong>{formatCandidateDate(exam.end_at, portal.institution?.timezone)}</strong></span></div>
       {launchNotice && <p className="form-hint" role="status">{launchNotice}</p>}
@@ -91,7 +91,7 @@ export default function StudentExamsPage() {
   if (blocked) return <div className="student-page student-exams-page"><PortalState portal={portal} /></div>
 
   return <div className="student-page student-exams-page">
-    <StudentPageHeader eyebrow="Academic portal · Assessment schedule" title="My Exams">View examinations assigned to your active class or cohort.</StudentPageHeader>
+    <StudentPageHeader eyebrow="Academic portal · Assessment schedule" title="My Exams">View examinations assigned to you or your active class or cohort.</StudentPageHeader>
     <div className="student-exam-tabs" role="tablist" aria-label="Examination status">{tabs.map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={activeTab === key} aria-controls="student-exam-panel" className={activeTab === key ? 'is-active' : ''} onClick={() => chooseTab(key)}>{label}<span>{exams.filter(exam => belongsToTab(exam, key)).length}</span></button>)}</div>
     <Card className="student-exam-filters"><SearchField id="student-exam-search" label="Search examinations" placeholder="Search exams..." value={search} onChange={event => setSearch(event.target.value)} /><label className="form-field student-exam-subject-filter"><span>Filter subject</span><select className="form-control form-select" value={subject} onChange={event => setSubject(event.target.value)}><option value="all">All subjects</option>{subjects.map(value => <option key={value}>{value}</option>)}</select></label></Card>
     <section id="student-exam-panel" role="tabpanel" aria-label={`${tabs.find(([key]) => key === activeTab)?.[1]} examinations`} className="student-exam-panel">

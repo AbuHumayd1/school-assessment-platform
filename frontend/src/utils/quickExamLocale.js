@@ -1,4 +1,13 @@
 export const quickExamAr = {
+  'Your score': 'درجتك',
+  'Exam submitted successfully': 'تم تسليم الاختبار بنجاح',
+  'Exam has not started yet.': 'لم يبدأ الاختبار بعد.',
+  'Exam has ended.': 'انتهى الاختبار.',
+  'Exam is not open for candidates.': 'الاختبار غير مفتوح للمرشحين.',
+  'Candidate is not eligible.': 'المرشح غير مؤهل لهذا الاختبار.',
+  'Exam is not ready for candidates.': 'الاختبار غير جاهز للمرشحين.',
+  'No attempts remaining.': 'لا توجد محاولات متبقية.',
+  'This exam cannot be resumed.': 'لا يمكن استئناف هذا الاختبار.',
   'End Session': 'إنهاء الجلسة',
   'Candidate': 'المرشح',
   'Examination briefing': 'معلومات الاختبار',

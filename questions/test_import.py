@@ -42,11 +42,17 @@ class QuestionBankSearchTests(APITestCase):
         return user
 
     def make_question(self, institution, subject, topic, text, qtype, difficulty, qstatus, creator=None):
-        return Question.objects.create(
+        question = Question.objects.create(
             institution=institution, subject=subject, topic=topic, question_type=qtype,
-            difficulty=difficulty, text=text, status=qstatus,
+            difficulty=difficulty, text=text, status='draft',
             created_by=creator or self.teacher,
         )
+        QuestionOption.objects.bulk_create([QuestionOption(question=question, text=str(order),
+            order=order, is_correct=order == 1) for order in (1, 2)])
+        if qstatus != 'draft':
+            question.status = qstatus
+            question.save(update_fields=['status'])
+        return question
 
     def result_ids(self, query):
         response = self.client.get(f"{self.url}{query}")
@@ -74,6 +80,8 @@ class QuestionBankSearchTests(APITestCase):
         self.assertEqual(self.result_ids("?status=approved"), {self.science_question.pk})
 
     def test_is_active_filter_excludes_archived_questions(self):
+        self.question.status = Question.Status.APPROVED
+        self.question.save(update_fields=['status'])
         self.question.status = Question.Status.ARCHIVED
         self.question.save(update_fields=("status", "updated_at"))
         self.assertEqual(self.result_ids("?is_active=true"), {self.science_question.pk})

@@ -147,6 +147,7 @@ class WorkspaceContextView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
             },
+            "is_platform_admin": is_platform_admin,
             "workspaces": [
                 {
                     "institution": {
@@ -154,6 +155,8 @@ class WorkspaceContextView(APIView):
                         "name": item["institution"].name,
                         "slug": item["institution"].slug,
                         "institution_type": item["institution"].institution_type,
+                        "workspace_mode": item["institution"].workspace_mode,
+                        "can_release_candidate_results": item["institution"].can_release_candidate_results,
                     },
                     "role": item["role"],
                 }

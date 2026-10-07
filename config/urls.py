@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from institutions.views import InstitutionViewSet
+from institutions.platform_views import ClientViewSet, PlatformOverviewView, PlatformExamsView
 from candidates.views import CandidateViewSet
 from groups.views import GroupViewSet
 from subjects.views import SubjectViewSet
@@ -9,6 +10,7 @@ from questions.views import TopicViewSet, QuestionViewSet
 from tenants.views import InstitutionMembershipViewSet, InstitutionDashboardView
 
 router = DefaultRouter()
+router.register("platform/clients", ClientViewSet, basename="platform-client")
 router.register("institutions", InstitutionViewSet, basename="institution")
 router.register("memberships", InstitutionMembershipViewSet, basename="membership")
 router.register("candidates", CandidateViewSet, basename="candidate")
@@ -26,3 +28,6 @@ urlpatterns = [path("admin/", admin.site.urls), path("api/v1/", include('questio
                path("api/v1/attempts/", include("attempts.urls"))]
 urlpatterns += [path("api/v1/quick-exam/", include("assessments.quick_urls"))]
 urlpatterns += [path("api/v1/results/", include("results.urls"))]
+
+urlpatterns += [path("api/v1/platform/overview/", PlatformOverviewView.as_view(), name="platform-overview"),
+                path("api/v1/platform/exams/", PlatformExamsView.as_view(), name="platform-exams")]

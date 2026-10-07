@@ -8,6 +8,7 @@ from attempts.models import Answer, Attempt, AttemptQuestion, AttemptQuestionOpt
 from audit.models import AuditEvent
 from audit.services import record_event
 from questions.models import Question
+from institutions.workspace_access import require_result_release
 from .grading import grade_for_percentage
 from .models import Result, ResultQuestion
 
@@ -138,13 +139,14 @@ def mark_attempt(attempt_id, *, now=None, actor=None):
 def publish_result(result_id, *, now=None, actor=None):
     now = now or timezone.now()
     try:
+        institution_id = Result.objects.values_list("institution_id", flat=True).get(pk=result_id)
+        require_result_release(actor, institution_id)
         result = Result.objects.select_for_update().select_related("assessment").get(pk=result_id)
     except Result.DoesNotExist:
         from rest_framework.exceptions import NotFound
         raise NotFound()
     if not result.marked_at:
         raise ValidationError({"result": "The result must be marked before publication."})
-    _authorize_actor(actor, result.institution_id, {"platform_admin", "institution_admin"})
     assessment = result.assessment
     if assessment.result_visibility == assessment.ResultVisibility.HIDDEN:
         raise ValidationError({"result_visibility": "This assessment is configured to keep results hidden."})

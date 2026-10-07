@@ -374,6 +374,17 @@ class Command(BaseCommand):
             raise CommandError(f"An assessment named '{title}' already exists and is not owned by this seed command.")
         if existing and Attempt.objects.filter(assessment=existing).exists():
             raise CommandError(f"'{title}' already has attempts; refusing to update its seeded configuration.")
+        if existing and existing.status != Assessment.Status.DRAFT:
+            if existing.status == Assessment.Status.ARCHIVED:
+                raise CommandError(f"'{title}' is archived; refusing to reopen it.")
+            pinned = list(existing.assessment_questions.order_by('order').values_list('question_id', 'order', 'marks'))
+            expected = [(question.pk, order, Decimal('2.00')) for order, question in enumerate(questions, 1)]
+            if pinned != expected or existing.subject_id != subject.pk or existing.group_id != group.pk:
+                raise CommandError(f"'{title}' preparation is frozen; explicitly reopen it before changing its seed content.")
+            # Repeated seeding retains approved dates and concrete revision pins.
+            existing.validate_configuration(require_questions=True, require_schedule=True)
+            self._schedule_assessment(existing, approver)
+            return existing
 
         assessment, created = Assessment.objects.get_or_create(
             institution=institution,

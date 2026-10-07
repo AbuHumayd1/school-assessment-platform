@@ -48,6 +48,23 @@ def resolve_candidate(user, institution_id=None):
     return candidates[0]
 
 
+AVAILABILITY_MESSAGES = {
+    "upcoming": "Exam has not started yet.",
+    "ended": "Exam has ended.",
+    "not_open": "Exam is not open for candidates.",
+    "not_eligible": "Candidate is not eligible.",
+    "not_ready": "Exam is not ready for candidates.",
+    "attempt_limit_reached": "No attempts remaining.",
+    "resume_disabled": "This exam cannot be resumed.",
+}
+
+
+def assessment_unavailability_reason(error):
+    """Expose only safe candidate reasons, never configuration/answer details."""
+    code = "not_eligible" if isinstance(error, NotFound) else error.get_codes()
+    return code if isinstance(code, str) and code in AVAILABILITY_MESSAGES else "not_ready"
+
+
 def _validate_assessment_for_candidate(
     assessment, candidate, now, *, check_window=True, question_rows=None,
     eligible_group_ids=None, access_mode="portal",
@@ -55,27 +72,22 @@ def _validate_assessment_for_candidate(
     if assessment.institution_id != candidate.institution_id or not assessment.institution.is_active:
         raise NotFound()
     if candidate.status != Candidate.Status.ACTIVE:
-        raise PermissionDenied("This candidate profile is not active.")
+        raise PermissionDenied(AVAILABILITY_MESSAGES["not_eligible"], code="not_eligible")
     if assessment.status not in {Assessment.Status.APPROVED, Assessment.Status.SCHEDULED}:
-        raise PermissionDenied("Only approved or scheduled assessments are available to candidates.")
+        raise PermissionDenied(AVAILABILITY_MESSAGES["not_open"], code="not_open")
     if check_window:
         window = assessment_window_state(assessment, now)
         if window == "upcoming":
-            raise PermissionDenied("This assessment is not available yet.")
+            raise PermissionDenied(AVAILABILITY_MESSAGES["upcoming"], code="upcoming")
         if window == "ended":
-            raise PermissionDenied("The assessment availability window has ended.")
+            raise PermissionDenied(AVAILABILITY_MESSAGES["ended"], code="ended")
     if access_mode == "quick":
-        if assessment.candidate_access != Assessment.CandidateAccess.ACCESS_CODE:
-            raise PermissionDenied("This assessment is not configured for Quick Exam delivery.")
+        if not assessment.uses_quick_delivery:
+            raise PermissionDenied(AVAILABILITY_MESSAGES["not_eligible"], code="not_eligible")
     else:
-        if assessment.candidate_access != Assessment.CandidateAccess.ASSIGNED_GROUP:
-            raise PermissionDenied("This assessment access mode is not configured for candidate delivery.")
-        if not assessment.group_id or not assessment.group.is_active:
-            raise ValidationError({"group": "An active assigned group is required for candidate access."})
-        if eligible_group_ids is None:
-            eligible_group_ids = active_group_ids_for_candidate(candidate)
-        if assessment.group_id not in eligible_group_ids:
-            raise PermissionDenied("The candidate is not an active member of the assigned group.")
+        from assessments.eligibility import portal_candidate_is_assigned
+        if not portal_candidate_is_assigned(assessment, candidate, eligible_group_ids):
+            raise PermissionDenied(AVAILABILITY_MESSAGES["not_eligible"], code="not_eligible")
 
     rows = question_rows
     if rows is None:
@@ -91,8 +103,8 @@ def _validate_assessment_for_candidate(
         raise ValidationError({"questions": "The assessment has no configured questions."})
     for row in rows:
         question = row.question
-        if question.status != Question.Status.APPROVED:
-            raise ValidationError({"questions": "Every delivered question must still be approved."})
+        if not question.is_deliverable_revision:
+            raise ValidationError({"questions": "Every delivered question must be an approved immutable revision."})
         options = list(question.options.all())
         correct = sum(option.is_correct for option in options)
         if question.question_type == Question.Type.MULTIPLE_CHOICE and (len(options) < 2 or correct != 1):
@@ -131,9 +143,9 @@ def start_access_attempt(context, *, now=None):
             if assessment.institution_id != candidate.institution_id or not assessment.institution.is_active:
                 raise NotFound()
             if candidate.status != Candidate.Status.ACTIVE:
-                raise PermissionDenied("This candidate profile is not active.")
-            if context.access_mode == "portal" and assessment.candidate_access != Assessment.CandidateAccess.ASSIGNED_GROUP:
-                raise PermissionDenied("This assessment access mode is not configured for candidate delivery.")
+                raise PermissionDenied(AVAILABILITY_MESSAGES["not_eligible"], code="not_eligible")
+            if context.access_mode == "portal" and assessment.uses_quick_delivery:
+                raise PermissionDenied(AVAILABILITY_MESSAGES["not_eligible"], code="not_eligible")
             active = Attempt.objects.select_for_update().filter(
                 candidate=candidate, assessment=assessment, status=Attempt.Status.IN_PROGRESS,
             ).first()
@@ -273,7 +285,8 @@ def lock_access_attempt(context, attempt_id):
                    institution__is_active=True)
     if context.access_mode == "portal":
         filters["candidate__user"] = context.user
-        filters["assessment__candidate_access"] = Assessment.CandidateAccess.ASSIGNED_GROUP
+        filters["assessment__candidate_access__in"] = (Assessment.CandidateAccess.ASSIGNED_GROUP, Assessment.CandidateAccess.SPECIFIC_CANDIDATES)
+        filters["assessment__quick_configuration__isnull"] = True
     try:
         return Attempt.objects.select_for_update().select_related("assessment", "candidate", "institution").get(**filters)
     except Attempt.DoesNotExist:

@@ -31,14 +31,31 @@ class QuestionOptionInline(admin.TabularInline):
     fields = ("order", "text", "is_correct", "created_at", "updated_at")
     readonly_fields = ("created_at", "updated_at")
 
+    def has_add_permission(self, request, obj=None):
+        return not (obj and obj.content_locked) and super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        return not (obj and obj.content_locked) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and obj.content_locked) and super().has_delete_permission(request, obj)
+
 
 @admin.register(Question)
 class QuestionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("id", "subject", "question_type", "difficulty", "status", "created_by", "created_at")
     list_filter = ("institution", "subject", "question_type", "difficulty", "status")
     search_fields = ("text", "source", "learning_objective", "created_by__email")
-    readonly_fields = ("status", "created_by", "reviewed_by", "created_at", "updated_at")
+    readonly_fields = ("status", "created_by", "reviewed_by", "created_at", "updated_at", 'revision_family', 'revision_number', 'content_locked', 'available_for_new_assessments')
     inlines = (QuestionOptionInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.content_locked:
+            return tuple(field.name for field in self.model._meta.fields)
+        return super().get_readonly_fields(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and obj.content_locked) and super().has_delete_permission(request, obj)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         institution_ids = admin_institution_ids(request.user, self.access_roles)
@@ -67,6 +84,12 @@ class QuestionOptionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_filter = ("is_correct", "question__institution", "question__question_type")
     search_fields = ("text", "question__text")
     readonly_fields = ("created_at", "updated_at")
+
+    def has_change_permission(self, request, obj=None):
+        return not (obj and obj.question.content_locked) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and obj.question.content_locked) and super().has_delete_permission(request, obj)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "question":

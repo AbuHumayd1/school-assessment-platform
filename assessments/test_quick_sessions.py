@@ -10,12 +10,13 @@ from django.core.cache import cache
 from django.contrib.auth.hashers import make_password
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
 from django.db import connections
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import User
 from attempts.models import Answer, Attempt, AttemptQuestionOption
-from attempts.tests import CandidateAttemptAPITests
+from attempts.tests import CandidateAttemptAPITests, finish_fixture_exam, save_prepared_fixture
 from audit.models import AuditEvent
 from candidates.models import Candidate
 from results.models import Result
@@ -41,6 +42,7 @@ class QuickSessionTests(TestCase):
             created_by=cls.staff, candidate_access="access_code", title="Quick assessment", randomize_questions=True, randomize_options=True)
         for position, question in enumerate((cls.mcq, cls.multi, cls.truefalse), 1):
             AssessmentQuestion.objects.create(assessment=cls.quick_assessment, question=question, order=position, marks=1)
+        finish_fixture_exam(cls.quick_assessment)
         cls.configuration = QuickExamConfiguration.objects.create(assessment=cls.quick_assessment, exam_code="PUBLIC-2026", enabled=True)
         cls.credential = QuickExamCredential.objects.create(configuration=cls.configuration, candidate=cls.quick_candidate, pin_hash=make_password(cls.PIN))
 
@@ -119,8 +121,9 @@ class QuickSessionTests(TestCase):
         self.assert_generic(self.verify())
 
     def test_wrong_access_mode_generic_failure(self):
-        Assessment.objects.filter(pk=self.quick_assessment.pk).update(candidate_access="assigned_group")
-        self.assert_generic(self.verify())
+        with self.assertRaises(ValidationError):
+            Assessment.objects.filter(pk=self.quick_assessment.pk).update(candidate_access="assigned_group")
+        self.assertEqual(self.verify().status_code, 200)
 
     def test_missing_credential_generic_failure(self):
         self.credential.delete()
@@ -402,7 +405,10 @@ class QuickSessionTests(TestCase):
         for fields, state in (({"start_at": timezone.now() + timedelta(hours=1)}, "upcoming"),
                               ({"start_at": timezone.now() - timedelta(hours=2), "end_at": timezone.now() - timedelta(hours=1)}, "ended"),
                               ({"status": "draft"}, "unavailable")):
+            Assessment.objects.filter(pk=self.quick_assessment.pk).update(status='draft')
             Assessment.objects.filter(pk=self.quick_assessment.pk).update(**fields)
+            if fields.get('status') != 'draft':
+                Assessment.objects.filter(pk=self.quick_assessment.pk).update(status='approved')
             response = self.client.get(self.base + "session/")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data["availability"]["state"], state)
@@ -437,16 +443,20 @@ class QuickSessionTests(TestCase):
         self.assertEqual(list(AttemptQuestionOption.objects.filter(attempt_question__attempt=attempt).values_list("option_id", "order")), options)
 
     def test_resume_precedes_new_start_window_eligibility(self):
+        instant = timezone.now()
+        self.quick_assessment.end_at = instant + timedelta(minutes=5)
+        save_prepared_fixture(self.quick_assessment, update_fields=['end_at'])
         attempt = self.begin()
-        Assessment.objects.filter(pk=self.quick_assessment.pk).update(end_at=timezone.now() - timedelta(seconds=1))
-        self.assertTrue(self.client.get(self.base + "session/").data["availability"]["can_resume"])
-        response = self.client.post(self.base + "start/", {}, format="json")
+        with patch('django.utils.timezone.now', return_value=instant + timedelta(minutes=6)):
+            self.assertTrue(self.client.get(self.base + "session/").data["availability"]["can_resume"])
+            response = self.client.post(self.base + "start/", {}, format="json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["id"], attempt.pk)
 
     def test_resume_disabled_preserves_existing_engine_conflict(self):
+        self.quick_assessment.resume_allowed = False
+        save_prepared_fixture(self.quick_assessment, update_fields=['resume_allowed'])
         self.begin()
-        Assessment.objects.filter(pk=self.quick_assessment.pk).update(resume_allowed=False)
         self.assertEqual(self.client.post(self.base + "start/", {}, format="json").status_code, 409)
 
     def test_attempt_limit_counts_existing_candidate_assessment_history(self):
@@ -583,7 +593,16 @@ class QuickSessionTests(TestCase):
                                               ("scheduled_release", "immediate", "provisional")):
             with self.subTest(visibility=visibility, release=release):
                 cache.clear()
-                Assessment.objects.filter(pk=self.quick_assessment.pk).update(attempt_limit=10, result_visibility=visibility, result_release_mode=release)
+                self.quick_assessment = self.make_assessment(self, institution=self.school, subject=self.subject,
+                    group=None, created_by=self.staff, candidate_access='access_code',
+                    result_visibility=visibility, result_release_mode=release)
+                for position, question in enumerate((self.mcq, self.multi, self.truefalse), 1):
+                    AssessmentQuestion.objects.create(assessment=self.quick_assessment, question=question, order=position, marks=1)
+                finish_fixture_exam(self.quick_assessment)
+                self.configuration = QuickExamConfiguration.objects.create(assessment=self.quick_assessment,
+                    exam_code=f'POLICY-{self.quick_assessment.pk}', enabled=True)
+                self.credential = QuickExamCredential.objects.create(configuration=self.configuration,
+                    candidate=self.quick_candidate, pin_hash=make_password(self.PIN))
                 self.login_quick()
                 response = self.client.post(self.base + "start/", {}, format="json")
                 self.assertEqual(response.status_code, 201)

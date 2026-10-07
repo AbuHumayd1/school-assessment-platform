@@ -36,9 +36,9 @@ export default function AuthenticatedAccess() {
   const resolved = candidate?.userId === user.id
   const loading = workspace.loading || !resolved
   const error = workspace.error || candidate?.error
-  const hasWorkspace = !loading && workspace.workspaces.length > 0
+  const hasWorkspace = !loading && (workspace.workspaces.length > 0 || workspace.isPlatformAdmin)
   const hasCandidate = !loading && candidate.available
-  const destination = !loading && !error ? signInDestination(user, workspace.workspaces, location.state?.from, hasCandidate, workspace.currentRole) : null
+  const destination = !loading && !error ? signInDestination(user, workspace.workspaces, location.state?.from, hasCandidate, workspace.currentRole, workspace.isPlatformAdmin) : null
   useEffect(() => { if (destination) navigate(destination, { replace: true }) }, [destination, navigate])
   const retry = () => { setCandidate(null); setRetryKey(value => value + 1); workspace.retry() }
   return <section className="account-access-panel" dir={direction}>
@@ -50,7 +50,7 @@ export default function AuthenticatedAccess() {
     </> : hasWorkspace && hasCandidate ? <>
       <h1>{t('Where would you like to continue?', 'أين تود المتابعة؟')}</h1>
       <p>{t('Your account can access a workspace and the Student Portal.', 'يمكن لحسابك الوصول إلى مساحة عمل وبوابة الطلاب.')}</p>
-      <div className="account-access-actions"><Button as={Link} to="/app" replace>{t('Continue to workspace', 'المتابعة إلى مساحة العمل')}</Button><Button as={Link} to="/student" replace variant="outline">{t('Continue to Student Portal', 'المتابعة إلى بوابة الطلاب')}</Button></div>
+      <div className="account-access-actions"><Button as={Link} to={workspace.isPlatformAdmin ? '/platform' : '/app'} replace>{t(workspace.isPlatformAdmin ? 'Continue to platform' : 'Continue to workspace', workspace.isPlatformAdmin ? 'المتابعة إلى المنصة' : 'المتابعة إلى مساحة العمل')}</Button><Button as={Link} to="/student" replace variant="outline">{t('Continue to Student Portal', 'المتابعة إلى بوابة الطلاب')}</Button></div>
     </> : <>
       <h1>{t('No application access yet', 'لا تتوفر صلاحية دخول إلى التطبيق حاليا')}</h1>
       <p>{t('Your account is signed in, but no active workspace or candidate access is available. Contact your organizer if you expected access.', 'تم تسجيل دخولك، لكن لا تتوفر صلاحية نشطة لمساحة عمل أو بوابة الطلاب. تواصل مع الجهة المنظمة إذا كنت تتوقع صلاحية دخول.')}</p>

@@ -1,9 +1,14 @@
+from institutions.workspace_access import WorkspaceAccessMixin
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from django.db import transaction
+from django.http import HttpResponse
+import csv
+import io
 
 from candidates.models import Candidate
 from tenants.permissions import CanManageInstitution
@@ -11,12 +16,13 @@ from tenants.querysets import resolve_institution_context
 from .models import Assessment, QuickExamConfiguration, QuickExamCredential
 from .quick_serializers import (
     ConfigurationReadSerializer, ConfigurationWriteSerializer, CredentialReadSerializer,
-    CredentialResetSerializer, CredentialWriteSerializer, StrictInputSerializer,
+    CredentialResetSerializer, CredentialWriteSerializer, StrictInputSerializer, CredentialBatchSerializer,
 )
-from .quick_services import configure_quick_access, generate_credential, reset_credential, revoke_credential
+from .quick_services import configure_quick_access, generate_credential, reset_credential, revoke_credential, credential_counts, generate_assigned_credentials
 
 
-class QuickStaffView(APIView):
+class QuickStaffView(WorkspaceAccessMixin, APIView):
+    workspace_module = "preparation"
     permission_classes = (CanManageInstitution,)
     throttle_classes = (ScopedRateThrottle,)
 
@@ -63,7 +69,9 @@ class QuickCredentialView(QuickStaffView):
         pagination = PageNumberPagination()
         pagination.page_size = 25
         rows = pagination.paginate_queryset(credentials, request, view=self)
-        return pagination.get_paginated_response(CredentialReadSerializer(rows, many=True).data)
+        response = pagination.get_paginated_response(CredentialReadSerializer(rows, many=True).data)
+        response.data.update(credential_counts(configuration))
+        return response
 
     def post(self, request, assessment_pk):
         assessment = self.assessment(request, assessment_pk)
@@ -91,6 +99,30 @@ class QuickCredentialResetView(QuickStaffView):
         serializer.is_valid(raise_exception=True)
         credential, pin = reset_credential(configuration, candidate, request.user, **serializer.validated_data)
         return credential_response(credential, pin)
+
+
+class QuickCredentialBatchView(QuickStaffView):
+    @transaction.atomic
+    def post(self, request, assessment_pk):
+        assessment = self.assessment(request, assessment_pk)
+        serializer = CredentialBatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        configuration, issued = generate_assigned_credentials(self.configuration(assessment), request.user, **serializer.validated_data)
+        sheet = io.StringIO(newline="")
+        writer = csv.writer(sheet)
+        writer.writerow(["Candidate Name", "Candidate ID", "Exam Code", "PIN", "Exam Title"])
+        def cell(value):
+            value = str(value)
+            return "'" + value if value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n")) or value.startswith(("\t", "\r", "\n")) else value
+        for candidate, pin in issued:
+            writer.writerow([cell(f"{candidate.first_name} {candidate.last_name}".strip()), cell(candidate.candidate_id),
+                             configuration.exam_code, pin, cell(configuration.assessment.title)])
+        response = HttpResponse("\ufeff" + sheet.getvalue(), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="quick-exam-credentials.csv"'
+        response["Cache-Control"] = "no-store, private"
+        response["Pragma"] = "no-cache"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 class QuickCredentialRevokeView(QuickStaffView):

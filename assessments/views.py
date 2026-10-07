@@ -1,3 +1,4 @@
+from institutions.workspace_access import WorkspaceAccessMixin
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
@@ -20,7 +21,13 @@ class OwnerPagination(PageNumberPagination):
     page_size = 25
 
 
-class AssessmentViewSet(viewsets.ModelViewSet):
+class AssessmentViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
+    workspace_module = "assessments"
+
+    def initial(self, request, *args, **kwargs):
+        if self.action in {"preview", "question_inspection", "form_options", "question_options"}:
+            self.workspace_module = "preparation"
+        super().initial(request, *args, **kwargs)
     pagination_class = OwnerPagination
 
     def institution(self):
@@ -131,7 +138,7 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         for name, enum in (("assessment_type", Assessment.Type), ("security_level", Assessment.SecurityLevel),
                            ("result_visibility", Assessment.ResultVisibility), ("result_release_mode", Assessment.ResultReleaseMode)):
             choices[name] = [{"value": value, "label": label} for value, label in enum.choices]
-        choices["candidate_access"] = [{"value": value, "label": label} for value, label in Assessment.CandidateAccess.choices if value != "specific_candidates"]
+        choices["candidate_access"] = [{"value": value, "label": label} for value, label in Assessment.CandidateAccess.choices]
         return Response({"subjects": list(Subject.objects.filter(institution=institution).order_by("name", "pk").values("id", "name")),
                          "groups": list(Group.objects.filter(institution=institution, is_active=True).order_by("name", "pk").values("id", "name")), "choices": choices})
 
@@ -143,11 +150,22 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         if not subject.isdecimal() or int(subject) < 1:
             raise ValidationError({"subject": "Select a valid subject."})
         subject = get_object_or_404(Subject, pk=subject, institution=self.institution())
-        questions = Question.objects.filter(institution=self.institution(), subject=subject, status=Question.Status.APPROVED).select_related("topic").prefetch_related("options", "media").order_by("pk")
+        from .eligibility import eligible_subject_questions
         search = request.query_params.get("search", "").strip()[:200]
-        if search:
-            questions = questions.filter(text__icontains=search)
-        return self.get_paginated_response(InspectionQuestionSerializer(self.paginate_queryset(questions), many=True).data)
+        questions = eligible_subject_questions(self.institution(), subject, search).select_related("topic").prefetch_related("options", "media").order_by("pk")
+        data = InspectionQuestionSerializer(self.paginate_queryset(questions), many=True).data
+        exam_id = request.query_params.get("assessment", "")
+        if exam_id:
+            if not exam_id.isdecimal():
+                raise ValidationError({"assessment": "Select a valid exam."})
+            exam = get_object_or_404(Assessment, pk=exam_id, institution=self.institution(), subject=subject)
+            attached = set(exam.assessment_questions.values_list("question_id", flat=True))
+            for row in data:
+                row["attached"] = row["id"] in attached
+        response = self.get_paginated_response(data)
+        if exam_id:
+            response.data["available_count"] = questions.exclude(pk__in=attached).count()
+        return response
 
     @action(detail=True, methods=["get"])
     def eligibility(self, request, pk=None):
@@ -165,14 +183,23 @@ class AssessmentViewSet(viewsets.ModelViewSet):
                 status=Candidate.Status.ACTIVE, group_memberships__group=assessment.group,
                 group_memberships__is_active=True,
             )
+        elif mode == "specific_candidates":
+            candidates = candidates.filter(assessment_assignments__assessment=assessment)
         elif mode == "access_code":
-            candidates = candidates.filter(quick_credentials__configuration__assessment=assessment)
+            candidates = candidates.filter(Q(assessment_assignments__assessment=assessment) | Q(quick_credentials__configuration__assessment=assessment))
         else:
             candidates = candidates.none()
+        from attempts.models import Attempt
+        from results.models import Result
+        candidates = candidates.annotate(
+            participated=Exists(Attempt.objects.filter(assessment=assessment, candidate_id=OuterRef("pk"))),
+            result_history=Exists(Result.objects.filter(assessment=assessment, candidate_id=OuterRef("pk"))),
+        )
         rows = self.paginate_queryset(candidates.distinct().order_by("first_name", "last_name", "pk"))
-        data = [{"id": row.pk, "candidate_id": row.candidate_id, "name": f"{row.first_name} {row.last_name}".strip(), "status": row.status} for row in rows]
+        assignments = dict(assessment.candidate_assignments.filter(candidate_id__in=[row.pk for row in rows]).values_list("candidate_id", "pk"))
+        data = [{"id": row.pk, "candidate_id": row.candidate_id, "name": f"{row.first_name} {row.last_name}".strip(), "status": row.status, "email": row.email, "has_participated": row.participated or row.result_history, "assignment": assignments.get(row.pk)} for row in rows]
         response = self.get_paginated_response(data)
-        response.data.update(mode=mode, delivery_supported=mode != "specific_candidates",
+        response.data.update(mode=mode, delivery_supported=True, eligible_count=candidates.filter(status=Candidate.Status.ACTIVE).distinct().count(),
                              workflow_status=assessment.status, window=assessment_window_state(assessment, timezone.now()))
         return response
 
@@ -199,7 +226,10 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         if approver:
             assessment.approved_by = self.request.user
             fields.append("approved_by")
-        assessment.save(update_fields=fields)
+        try:
+            assessment.save(update_fields=fields)
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
         event_type = {"approved": "assessment_approved", "scheduled": "assessment_scheduled"}.get(target)
         event_type = event_type or {"submit_review": "assessment_review_submitted", "request_changes": "assessment_changes_requested",
                                     "reopen": "assessment_reopened", "archive": "assessment_archived"}[self.action]
@@ -232,7 +262,8 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         return self._transition(self.get_object(), {Assessment.Status.APPROVED, Assessment.Status.SCHEDULED}, Assessment.Status.ARCHIVED)
 
 
-class AssessmentQuestionListCreateView(viewsets.ViewSet):
+class AssessmentQuestionListCreateView(WorkspaceAccessMixin, viewsets.ViewSet):
+    workspace_module = "preparation"
     permission_classes = [CanAccessAssessments]
     """Dedicated staff endpoint for selecting questions into one assessment."""
     def _assessment(self, request, pk):
@@ -268,7 +299,8 @@ class AssessmentQuestionListCreateView(viewsets.ViewSet):
         return Response(AssessmentQuestionSerializer(row, context={"assessment": assessment}).data, status=status.HTTP_201_CREATED)
 
 
-class AssessmentQuestionDetailView(viewsets.ViewSet):
+class AssessmentQuestionDetailView(WorkspaceAccessMixin, viewsets.ViewSet):
+    workspace_module = "preparation"
     permission_classes = [CanAccessAssessments]
     def _row(self, request, assessment_pk, pk, write=False):
         try:

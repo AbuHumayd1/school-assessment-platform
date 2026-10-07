@@ -29,6 +29,7 @@ def active_group_ids_for_candidate(candidate, local_date=None):
 
 
 def assessment_window_state(assessment, now):
+    """Compare aware instants; entry includes both boundaries of the saved window."""
     if assessment.start_at and now < assessment.start_at:
         return "upcoming"
     if assessment.end_at and now > assessment.end_at:

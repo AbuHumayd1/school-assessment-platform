@@ -2,16 +2,20 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from django.test.utils import CaptureQueriesContext
+from django.db import connection
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
 from groups.models import Group
 from institutions.models import Institution
-from questions.models import Question
+from questions.models import Question, QuestionOption
 from subjects.models import Subject
 from tenants.models import InstitutionMembership
 from .models import Assessment, AssessmentQuestion
+from .serializers import AssessmentSerializer, AssessmentQuestionSerializer
 
 
 class AssessmentAPITests(APITestCase):
@@ -29,9 +33,11 @@ class AssessmentAPITests(APITestCase):
         cls.examiner = User.objects.create_user("examiner@example.test", "Safe-pass-8392")
         cls.admin = User.objects.create_user("admin@example.test", "Safe-pass-8392")
         cls.student = User.objects.create_user("student@example.test", "Safe-pass-8392")
+        cls.foreign_author = User.objects.create_user("foreign-author@example.test")
         for user, role, school in (
             (cls.teacher, "teacher", cls.school_a), (cls.examiner, "examiner", cls.school_a),
             (cls.admin, "institution_admin", cls.school_a), (cls.student, "student", cls.school_a),
+            (cls.foreign_author, "teacher", cls.school_b),
         ):
             InstitutionMembership.objects.create(user=user, institution=school, role=role)
         cls.question = cls.make_question(cls, cls.school_a, cls.subject_a, "approved", "Question one")
@@ -44,11 +50,20 @@ class AssessmentAPITests(APITestCase):
 
     @staticmethod
     def make_question(cls, school, subject, qstatus, text):
-        return Question.objects.create(
+        question = Question.objects.create(
             institution=school, subject=subject, question_type=Question.Type.MULTIPLE_CHOICE,
-            text=text, created_by=cls.teacher if school.name == "North Academy" else cls.admin,
-            status=qstatus,
+            text=text, created_by=cls.teacher if school.name == "North Academy" else cls.foreign_author,
+            status='draft',
         )
+        QuestionOption.objects.bulk_create([QuestionOption(question=question, text=str(order),
+            order=order, is_correct=order == 1) for order in (1, 2)])
+        if qstatus != 'draft':
+            question.status = 'approved' if qstatus == 'archived' else qstatus
+            question.save(update_fields=['status'])
+            if qstatus == 'archived':
+                question.status = 'archived'
+                question.save(update_fields=['status'])
+        return question
 
     def setUp(self):
         self.client.force_authenticate(self.teacher)
@@ -148,6 +163,21 @@ class AssessmentAPITests(APITestCase):
 
     def test_zero_marks_rejected(self):
         self.assertEqual(self.create_assessment(questions=[{"question": self.question.pk, "order": 1, "marks": 0}]).status_code, 400)
+        created = self.create_assessment(questions=[])
+        exam = Assessment.objects.get(pk=created.data['id'])
+        for value in (Decimal('1.25'), 1, 1.25, '1.25'):
+            with self.subTest(valid_marks=value):
+                row = AssessmentQuestion.objects.create(assessment=exam, question=self.question,
+                    order=1, marks=value)
+                self.assertIsInstance(row.marks, Decimal)
+                row.refresh_from_db()
+                self.assertEqual(row.marks, Decimal(str(value)))
+                row.delete()
+        for value in (0, '0.00', -1, '-1.25', 'invalid', None, 'NaN', 'Infinity', '0.001', '100000.00'):
+            with self.subTest(invalid_marks=value), self.assertRaises(ValidationError):
+                AssessmentQuestion.objects.create(assessment=exam, question=self.question,
+                    order=1, marks=value)
+        self.assertFalse(exam.assessment_questions.exists())
 
     def test_negative_marks_rejected(self):
         self.assertEqual(self.create_assessment(questions=[{"question": self.question.pk, "order": 1, "marks": -2}]).status_code, 400)
@@ -299,16 +329,39 @@ class AssessmentAPITests(APITestCase):
         self.assertEqual(self.client.delete(f"{self.url}{other.pk}/").status_code, 404)
 
     def test_filter_by_subject(self):
-        self.create_assessment()
+        created = self.create_assessment()
+        exam = Assessment.objects.get(pk=created.data['id'])
+        self.question.status = 'archived'
+        self.question.save(update_fields=['status'])
         response = self.client.get(self.url, {"subject": self.subject_a.pk})
         self.assertEqual(response.status_code, 200)
+        for instances in ([exam], Assessment.objects.filter(pk=exam.pk)):
+            with self.subTest(collection=type(instances).__name__):
+                serializer = AssessmentSerializer(instances, many=True,
+                    context={'institution': self.school_a})
+                self.assertEqual(serializer.data[0]['questions'][0]['question'], self.question.pk)
+                with CaptureQueriesContext(connection) as queries:
+                    pinned = list(serializer.child.fields['questions'].child.fields['question'].queryset)
+                self.assertLessEqual(len(queries), 1)
+                self.assertIn(self.question.pk, [question.pk for question in pinned])
 
     def test_nested_question_list_add_edit_remove(self):
         created = self.create_assessment(questions=[])
         base = f"{self.url}{created.data['id']}/questions/"
         added = self.client.post(base, {"question": self.question.pk, "order": 1, "marks": "6.00"}, format="json")
         self.assertEqual(added.status_code, 201, added.data)
+        self.question.status = 'archived'
+        self.question.save(update_fields=['status'])
         self.assertEqual(self.client.get(base).status_code, 200)
+        row = AssessmentQuestion.objects.get(pk=added.data['id'])
+        for instances in (row, [row], AssessmentQuestion.objects.filter(pk=row.pk)):
+            many = not isinstance(instances, AssessmentQuestion)
+            serializer = AssessmentQuestionSerializer(instances, many=many,
+                context={'assessment': row.assessment})
+            payload = serializer.data[0] if many else serializer.data
+            self.assertEqual(payload['question'], self.question.pk)
+            child = serializer.child if many else serializer
+            self.assertTrue(child.fields['question'].queryset.filter(pk=self.question.pk).exists())
         detail = f"{base}{added.data['id']}/"
         changed = self.client.patch(detail, {"marks": "7.00"}, format="json")
         self.assertEqual(changed.status_code, 200)

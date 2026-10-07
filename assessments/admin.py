@@ -18,8 +18,16 @@ class AssessmentAdmin(admin.ModelAdmin):
     autocomplete_fields = ("institution", "subject", "group")
     inlines = (AssessmentQuestionInline,)
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj and (obj.status != obj.Status.DRAFT or obj.attempts.exists()):
+            return tuple(field.name for field in self.model._meta.fields)
+        return super().get_readonly_fields(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return not (obj and (obj.status != obj.Status.DRAFT or obj.attempts.exists())) and super().has_delete_permission(request, obj)
+
     def get_inline_instances(self, request, obj=None):
-        if obj and obj.status != obj.Status.DRAFT:
+        if obj and (obj.status != obj.Status.DRAFT or obj.attempts.exists()):
             return []
         return super().get_inline_instances(request, obj)
 

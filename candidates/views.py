@@ -108,8 +108,6 @@ class CandidateExamListView(APIView):
         candidate = resolve_portal_candidate(request.user)
         now = timezone.now()
         eligible_group_ids = active_group_ids_for_candidate(candidate)
-        if not eligible_group_ids:
-            return Response({"exams": []})
 
         question_rows = AssessmentQuestion.objects.select_related("question").prefetch_related(
             "question__options",
@@ -121,10 +119,11 @@ class CandidateExamListView(APIView):
             institution_id=candidate.institution_id,
             institution__is_active=True,
             status__in=(Assessment.Status.APPROVED, Assessment.Status.SCHEDULED),
-            candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP,
-            group_id__in=eligible_group_ids,
-            group__is_active=True,
-        ).select_related("institution", "subject", "group").prefetch_related(
+
+        ).filter(
+            Q(candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP, group_id__in=eligible_group_ids, group__is_active=True)
+            | Q(candidate_access=Assessment.CandidateAccess.SPECIFIC_CANDIDATES, candidate_assignments__candidate=candidate)
+        ).distinct().select_related("institution", "subject", "group").prefetch_related(
             Prefetch("assessment_questions", queryset=question_rows),
             Prefetch("attempts", queryset=attempts, to_attr="candidate_attempts"),
         ).order_by("start_at", "title", "pk")
@@ -188,8 +187,8 @@ class CandidateExamListView(APIView):
                 "subject": {"id": assessment.subject_id, "name": assessment.subject.name},
                 "group": {
                     "id": assessment.group_id,
-                    "name": assessment.group.name,
-                    "code": assessment.group.code,
+                    "name": assessment.group.name if assessment.group_id else None,
+                    "code": assessment.group.code if assessment.group_id else None,
                 },
                 "duration_minutes": assessment.duration_minutes,
                 "total_marks": str(total_marks),
@@ -215,6 +214,40 @@ class CandidateViewSet(viewsets.ModelViewSet):
     serializer_class = CandidateSerializer
     permission_classes = [CanManageCandidates]
     pagination_class = CandidatePagination
+
+    @action(detail=False, methods=["post"], url_path="import-preview")
+    def import_preview(self, request):
+        from .bulk_import import parse_file, validate_rows, sign_preview
+        institution = self.get_institution()
+        rows, errors = validate_rows(parse_file(request.FILES.get("file")), institution, request, generate_ids=True)
+        response = Response({"rows": rows, "errors": errors, "count": len(rows),
+                             "token": None if errors else sign_preview(rows, institution, request.user)})
+        response["Cache-Control"] = "no-store, private"
+        return response
+
+    @action(detail=False, methods=["post"], url_path="import-confirm")
+    def import_confirm(self, request):
+        from .bulk_import import read_preview, validate_rows
+        institution = self.get_institution()
+        rows = read_preview(request.data.get("token"), institution, request.user)
+        try:
+            with transaction.atomic():
+                from institutions.models import Institution
+                Institution.objects.select_for_update().get(pk=institution.pk)
+                rows, errors = validate_rows(rows, institution, request)
+                if errors:
+                    return Response({"detail": "Import failed validation. No candidates created.", "errors": errors}, status=400)
+                for row in rows:
+                    serializer = CandidateSerializer(data={key: value for key, value in row.items() if key != "row"},
+                                                     context={"institution": institution, "request": request})
+                    serializer.is_valid(raise_exception=True)
+                    serializer.save(institution=institution)
+                record_event(institution=institution, actor=request.user,
+                             event_type=AuditEvent.Type.MEMBERSHIP_CHANGED, resource=institution,
+                             metadata={"action": "candidates_imported", "count": len(rows)})
+        except IntegrityError:
+            raise ValidationError({"detail": "A candidate ID is now in use. No candidates created. Upload again."})
+        return Response({"created_count": len(rows)}, status=201, headers={"Cache-Control": "no-store, private"})
 
     def get_permissions(self):
         if self.action == "destroy":

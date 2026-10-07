@@ -19,7 +19,7 @@ from candidates.test_management import CandidateManagementTests
 from results.models import Result
 from subjects.models import Subject
 from tenants.models import InstitutionMembership
-from .models import Assessment, QuickExamConfiguration, QuickExamCredential, QuickExamSession
+from .models import Assessment, AssessmentCandidate, QuickExamConfiguration, QuickExamCredential, QuickExamSession
 from .quick_services import PIN_ALPHABET, generate_credential, session_is_current, verify_credential
 
 
@@ -33,6 +33,8 @@ class QuickExamAccessTests(TestCase):
         cls.portal_exam = Assessment.objects.create(institution=cls.a, subject=cls.subject, title="Portal exam", assessment_type="quiz", duration_minutes=5, created_by=cls.admin)
         cls.config = QuickExamConfiguration.objects.create(assessment=cls.exam, exam_code="QUICK-2026", enabled=True)
         cls.no_account = Candidate.objects.create(institution=cls.a, candidate_id="NO-ACCOUNT", first_name="Quick", last_name="Participant")
+        for candidate in (cls.no_account, cls.linked):
+            AssessmentCandidate.objects.create(assessment=cls.exam, candidate=candidate, assigned_by=cls.admin)
 
     setUp = CandidateManagementTests.setUp
 
@@ -363,6 +365,7 @@ class QuickExamAccessTests(TestCase):
         self.issue(self.linked)
         credential = QuickExamCredential.objects.get(candidate=self.linked)
         self.session(credential)
+        self.exam.candidate_assignments.get(candidate=self.linked).delete()
         response = self.client.delete(f"/api/v1/candidates/{self.linked.pk}/")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(QuickExamCredential.objects.exists())

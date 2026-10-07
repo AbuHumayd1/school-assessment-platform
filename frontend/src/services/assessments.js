@@ -40,7 +40,7 @@ export function localDateValue(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 export function examFields(values) {
-  const fields = ['title', 'description', 'assessment_type', 'subject', 'group', 'duration_minutes', 'pass_mark', 'start_at', 'end_at', 'attempt_limit', 'resume_allowed', 'review_allowed', 'randomize_questions', 'randomize_options', 'security_level', 'candidate_access', 'result_visibility', 'result_release_mode']
+  const fields = ['title', 'description', 'assessment_type', 'subject', 'group', 'duration_minutes', 'pass_mark', 'start_at', 'end_at', 'attempt_limit', 'resume_allowed', 'review_allowed', 'randomize_questions', 'randomize_options', 'security_level', 'candidate_access', 'result_visibility', 'result_release_mode', 'show_score_immediately']
   return Object.fromEntries(fields.map(key => [key, ['start_at', 'end_at'].includes(key) ? (values[key] ? new Date(values[key]).toISOString() : null) : key === 'group' ? (values[key] ? Number(values[key]) : null) : ['subject', 'duration_minutes', 'attempt_limit'].includes(key) ? Number(values[key]) : values[key]]))
 }
 

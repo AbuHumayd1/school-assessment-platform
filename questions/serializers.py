@@ -96,11 +96,14 @@ class QuestionSerializer(serializers.ModelSerializer):
             "id", "institution", "subject", "topic", "question_type", "difficulty", "text", "explanation",
             "marks", "source", "source_year", "learning_objective", "status", "created_by", "reviewed_by",
             "options", "media", "source_metadata", "created_at", "updated_at",
+            "revision_family", "revision_number", "content_locked", "available_for_new_assessments",
         )
-        read_only_fields = ("id", "institution", "status", "created_by", "reviewed_by", "created_at", "updated_at")
+        read_only_fields = ("id", "institution", "status", "created_by", "reviewed_by", "created_at", "updated_at", "revision_family", "revision_number", "content_locked", "available_for_new_assessments")
 
     def validate(self, attrs):
         institution = self.context.get("institution") or getattr(self.instance, "institution", None)
+        if self.instance and self.instance.content_locked:
+            raise serializers.ValidationError('Approved question content is immutable. Create a new revision.')
         subject = attrs.get("subject", getattr(self.instance, "subject", None))
         topic = attrs.get("topic", getattr(self.instance, "topic", None))
         question_type = attrs.get("question_type", getattr(self.instance, "question_type", None))

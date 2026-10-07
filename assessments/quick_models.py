@@ -33,8 +33,12 @@ class QuickExamConfiguration(models.Model):
 
     def clean(self):
         self.exam_code = normalize_exam_code(self.exam_code)
-        if self.assessment_id and self.assessment.candidate_access != "access_code":
-            raise ValidationError({"assessment": "Quick Exam configuration requires access-code delivery."})
+        if self.assessment_id and self.assessment.candidate_access not in {"access_code", "specific_candidates"}:
+            raise ValidationError({"assessment": "Quick Exam supports Specific Candidates eligibility. Choose Specific Candidates first."})
+        if self.assessment_id and self.assessment.group_id:
+            raise ValidationError({"assessment": "Specific Candidates eligibility does not use a group."})
+        if self.assessment_id and not self.pk and self.assessment.candidate_access != "access_code":
+            raise ValidationError({"assessment": "Delivery method is fixed when the exam is created."})
         if self.pk:
             original = type(self).objects.filter(pk=self.pk).first()
             if original and original.assessment_id != self.assessment_id:

@@ -9,7 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 
-from assessments.models import Assessment, AssessmentQuestion, QuickExamCredential
+from assessments.models import Assessment, AssessmentQuestion, AssessmentCandidate, QuickExamCredential
 from assessments.quick_services import configure_quick_access, generate_credential, reset_credential
 from attempts.models import Attempt
 from attempts.services import _validate_assessment_for_candidate
@@ -59,6 +59,7 @@ class Command(BaseCommand):
                 credential = QuickExamCredential.objects.filter(configuration=configuration, candidate=candidate).first()
                 pin = None
                 if credential is None:
+                    AssessmentCandidate.objects.get_or_create(assessment=assessment, candidate=candidate, defaults={"assigned_by": actor})
                     credential, pin = generate_credential(configuration, candidate, actor)
                 elif options["reset"]:
                     credential, pin = reset_credential(configuration, candidate, actor, expires_at=None)

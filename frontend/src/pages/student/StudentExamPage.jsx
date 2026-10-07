@@ -7,6 +7,7 @@ import LoadingState from '../../components/common/LoadingState.jsx'
 import Modal from '../../components/common/Modal.jsx'
 import { ExamTimer, QuestionNavigator, QuestionRenderer, StudentEmptyState } from '../../components/student/StudentComponents.jsx'
 import * as portalApi from '../../services/attempts.js'
+import ImmediateScore from '../../components/student/ImmediateScore.jsx'
 
 const identity = text => text
 const portalRunner = { ...portalApi, mode: 'portal', backPath: '/student/exams', backLabel: 'Back to My Exams', rememberPath: id => portalApi.rememberActiveAttempt(`/student/exam/${id}`), clearPath: portalApi.clearRememberedAttempt }
@@ -397,7 +398,7 @@ export default function StudentExamPage({ api = portalRunner, translate = identi
     try {
       await Promise.all(questions.map((_, index) => flushAnswer(index)))
       const result = await submitAttempt(attemptId)
-      setAttempt(previous => ({ ...previous, status: result.status, submitted_at: result.submitted_at }))
+      setAttempt(previous => ({ ...previous, status: result.status, submitted_at: result.submitted_at, immediate_score: result.immediate_score }))
       clearRememberedAttempt(attemptId)
       setConfirmOpen(false)
       setSeconds(0)
@@ -423,8 +424,8 @@ export default function StudentExamPage({ api = portalRunner, translate = identi
   if (loading) return <LoadingState label={t('Loading your examination…')} />
   if (error && !attempt) return <div className="student-page"><StudentEmptyState title={t('Examination unavailable')} description={t(error)} /><p className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></p></div>
   if (onTerminal && attemptStatus && attemptStatus !== 'in_progress') return <LoadingState label={t('Opening your examination summary...')} />
-  if (attempt?.status === 'submitted') return <section className="exam-terminal-state"><span className="exam-terminal-state__icon"><Icon name="clipboard" size={31} /></span><p className="student-eyebrow">{t('Submission received')}</p><h1>{t('Exam Submitted')}</h1><p>{t('Your examination has been submitted. Check My Results for updates from your institution.')}</p><div className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></div></section>
-  if (attempt?.status !== 'in_progress') return <section className="exam-terminal-state exam-terminal-state--expired"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">{t('Examination window')}</p><h1>{t("Time's Up")}</h1><p>{t('Your saved answers have been marked. Check My Results when your institution releases the result.')}</p><div className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></div></section>
+  if (attempt?.status === 'submitted') return <section className="exam-terminal-state"><span className="exam-terminal-state__icon"><Icon name="clipboard" size={31} /></span><p className="student-eyebrow">{t('Submission received')}</p><h1>{t(attempt.immediate_score ? 'Exam submitted successfully' : 'Exam Submitted')}</h1><p>{t('Your examination has been submitted. Check My Results for updates from your institution.')}</p><ImmediateScore score={attempt.immediate_score} t={t} /><div className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></div></section>
+  if (attempt?.status !== 'in_progress') return <section className="exam-terminal-state exam-terminal-state--expired"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">{t('Examination window')}</p><h1>{t("Time's Up")}</h1><p>{t('Your saved answers have been marked. Check My Results when your institution releases the result.')}</p><ImmediateScore score={attempt.immediate_score} t={t} /><div className="exam-terminal-state__actions"><Button as={Link} to={api.backPath} variant="outline">{t(api.backLabel)}</Button></div></section>
   if (expiryFinalizing || seconds <= 0) return <section className="exam-terminal-state exam-terminal-state--expired" role="status"><span className="exam-terminal-state__icon"><Icon name="bell" size={31} /></span><p className="student-eyebrow">{t('Examination window')}</p><h1>{t('Finalising your examination')}</h1><p>{t('Time is up. We are confirming your examination status with the server. This page will update when the connection is restored.')}</p></section>
 
   const optionQuestion = question ? {

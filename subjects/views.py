@@ -1,17 +1,26 @@
+from institutions.workspace_access import WorkspaceAccessMixin
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from tenants.permissions import CanManageSubjects
-from tenants.querysets import institutions_for_user, can_manage_institution
+from tenants.querysets import institutions_for_user, can_manage_institution, resolve_institution_context
 from .models import Subject
 from .serializers import SubjectSerializer
-class SubjectViewSet(viewsets.ModelViewSet):
+class SubjectViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
+    workspace_module = "subjects"
     serializer_class = SubjectSerializer
     permission_classes = [CanManageSubjects]
     def get_queryset(self):
-        return Subject.objects.filter(institution_id__in=institutions_for_user(self.request.user), institution__is_active=True)
+        queryset = Subject.objects.filter(institution_id__in=institutions_for_user(self.request.user), institution__is_active=True)
+        if self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution"):
+            queryset = queryset.filter(institution=resolve_institution_context(self.request, {"institution_admin", "teacher", "examiner"}))
+        return queryset
     def perform_create(self, serializer):
         institution_id = self.request.data.get("institution")
+        if self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution"):
+            selected = resolve_institution_context(self.request, {"institution_admin", "teacher", "examiner"})
+            if str(institution_id) != str(selected.pk):
+                raise ValidationError({"institution": "Use the selected workspace."})
         if not institution_id or not can_manage_institution(self.request.user, institution_id, ["institution_admin", "teacher", "examiner"]):
             raise ValidationError({"institution": "Choose an institution you are authorized to manage."})
         code = serializer.validated_data["code"]

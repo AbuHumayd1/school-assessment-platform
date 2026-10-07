@@ -66,7 +66,7 @@ class AttemptListView(APIView):
     permission_classes = (IsCandidateUser,)
 
     def get(self, request):
-        owned = Q(candidate__user=request.user, assessment__candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP)
+        owned = Q(candidate__user=request.user, assessment__candidate_access__in=(Assessment.CandidateAccess.ASSIGNED_GROUP, Assessment.CandidateAccess.SPECIFIC_CANDIDATES), assessment__quick_configuration__isnull=True)
         staff_ids = _linked_assessment_institutions(request.user)
         queryset = Attempt.objects.filter(
             owned | Q(institution_id__in=staff_ids), institution__is_active=True,
@@ -79,8 +79,8 @@ class AttemptListView(APIView):
         for attempt in queryset:
             if expire_attempt(attempt, now, actor=request.user):
                 attempt.refresh_from_db()
-            serializer_class = CandidateAttemptSerializer if attempt.candidate.user_id == request.user.pk and attempt.assessment.candidate_access == Assessment.CandidateAccess.ASSIGNED_GROUP else StaffAttemptSerializer
-            data.append(serializer_class(attempt).data)
+            serializer_class = CandidateAttemptSerializer if attempt.candidate.user_id == request.user.pk and not attempt.assessment.uses_quick_delivery else StaffAttemptSerializer
+            data.append(serializer_class(attempt, context={"request": request}).data)
         return Response(data)
 
 
@@ -91,14 +91,14 @@ class AttemptDetailView(APIView):
     def get(self, request, attempt_id):
         try:
             attempt = Attempt.objects.select_for_update().select_related("assessment", "candidate", "institution").get(
-                Q(candidate__user=request.user, assessment__candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP) | Q(institution_id__in=_linked_assessment_institutions(request.user)),
+                Q(candidate__user=request.user, assessment__candidate_access__in=(Assessment.CandidateAccess.ASSIGNED_GROUP, Assessment.CandidateAccess.SPECIFIC_CANDIDATES), assessment__quick_configuration__isnull=True) | Q(institution_id__in=_linked_assessment_institutions(request.user)),
                 pk=attempt_id, institution__is_active=True,
             )
         except Attempt.DoesNotExist:
             raise NotFound()
         expire_attempt(attempt, actor=request.user)
-        if attempt.candidate.user_id == request.user.pk and attempt.assessment.candidate_access == Assessment.CandidateAccess.ASSIGNED_GROUP:
-            return Response(CandidateAttemptSerializer(attempt).data)
+        if attempt.candidate.user_id == request.user.pk and not attempt.assessment.uses_quick_delivery:
+            return Response(CandidateAttemptSerializer(attempt, context={"request": request}).data)
         return Response(StaffAttemptSerializer(attempt).data)
 
 
@@ -130,6 +130,7 @@ class AttemptSubmitView(CandidateAttemptAccessMixin, APIView):
             return Response({"detail": "Attempt has expired."}, status=status.HTTP_409_CONFLICT)
         return Response({
             "id": attempt.pk, "status": attempt.status, "submitted_at": attempt.submitted_at,
+            "immediate_score": CandidateAttemptSerializer(attempt, context={"request": request}).data["immediate_score"],
             "detail": "Attempt submitted." if newly_finalized else "Attempt was already submitted.",
         })
 

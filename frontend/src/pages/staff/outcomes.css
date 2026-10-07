@@ -1,0 +1,14 @@
+.outcomes { min-width: 0; margin-block: 1rem; }
+.outcome-assessments { display: grid; gap: 1rem; }
+.outcome-assessments article { min-width: 0; overflow-wrap: anywhere; }
+.outcome-publication { display: inline-block; padding: .4rem .65rem; border: 1px solid var(--border-color, #cbd5e1); border-radius: .4rem; }
+.outcome-publication-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
+.outcome-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: .8rem; margin-block-end: 1rem; }
+.outcome-summary strong { display: block; font-size: 1.6rem; margin-block-start: .5rem; }
+.outcome-filters { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-block: 1rem; }
+.outcome-filters label { display: flex; flex-direction: column; gap: .4rem; max-width: 100%; }
+.outcome-filters input, .outcome-filters select { padding: .65rem; max-width: 100%; border: 1px solid var(--border-color, #cbd5e1); border-radius: .4rem; background: white; color: #172033; }
+.outcome-table { min-width: 850px; }
+.outcome-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.outcomes .exam-table-scroll { max-width: 100%; overflow-x: auto; }
+@media (max-width: 600px) { .outcome-filters label { width: 100%; } .outcome-filters input, .outcome-filters select { width: 100%; box-sizing: border-box; } }

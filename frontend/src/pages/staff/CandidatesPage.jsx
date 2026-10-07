@@ -7,6 +7,7 @@ import Button from '../../components/common/Button.jsx'
 import Modal from '../../components/common/Modal.jsx'
 import { candidateCopy } from './candidate-copy.js'
 import './candidates.css'
+import CandidateImport from './CandidateImport.jsx'
 
 const accessLabels = { not_enabled: 'Portal access not enabled', enabled: 'Portal access enabled', account_inactive: 'Account inactive', candidate_inactive: 'Candidate inactive' }
 const statusLabel = value => value[0].toUpperCase() + value.slice(1)
@@ -73,6 +74,7 @@ export default function CandidatesPage() {
   const [credentials, setCredentials] = useState(null)
   const [deleteRecord, setDeleteRecord] = useState(null)
   const [deleteError, setDeleteError] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
   const alive = useRef(true)
   const actionPending = useRef(false)
   const detailHeading = useRef(null)
@@ -163,7 +165,9 @@ export default function CandidatesPage() {
     ['email', 'Email address', 'email', 254], ['phone', 'Phone number', 'tel', 32], ['date_of_birth', 'Date of birth', 'date'],
   ]
   return <div className="candidate-management" dir={direction}>
-    <header className="cm-header"><div><h1>{t('Candidates')}</h1><p>{t('Manage the people taking your assessments.')}</p></div><Button disabled={busy} onClick={() => startForm()}>{t('Add candidate')}</Button></header>
+    <header className="cm-header"><div><h1>{t('Candidates')}</h1><p>{t('Manage the people taking your assessments.')}</p></div><div className="cm-form-actions"><Button disabled={busy} onClick={() => setImportOpen(true)}>Upload Candidates</Button><Button variant="outline" disabled={busy} onClick={() => startForm()}>{t('Add candidate')}</Button></div></header>
+    {importOpen && <CandidateImport institutionId={institutionId} onClose={() => setImportOpen(false)} onImported={count => { setImportOpen(false); setPage(1); setRevision(value => value + 1); setNotice(`${count} candidates imported.`) }} />}
+    {notice.endsWith('candidates imported.') && <p role="status">{notice}</p>}
     <form className="cm-filters" onSubmit={event => { event.preventDefault(); setQuery(search.trim()); setPage(1) }}>
       <label><span className="sr-only">{t('Search by name, candidate ID or email')}</span><input className="form-control" type="search" maxLength={200} placeholder={t('Search by name, candidate ID or email')} value={search} onChange={event => setSearch(event.target.value)} /></label>
       <Button type="submit" variant="outline">{t('Search')}</Button>

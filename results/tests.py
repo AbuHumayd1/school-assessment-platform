@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 from rest_framework.test import APITestCase
 from rest_framework.exceptions import ValidationError as APIValidationError
 
@@ -21,8 +22,8 @@ from .services import mark_attempt, publish_result
 class ResultFixtureMixin:
     @classmethod
     def setUpTestData(cls):
-        cls.school = Institution.objects.create(name="Marking School")
-        cls.other_school = Institution.objects.create(name="Other Marking School")
+        cls.school = Institution.objects.create(name="Marking School", can_release_candidate_results=True)
+        cls.other_school = Institution.objects.create(name="Other Marking School", can_release_candidate_results=True)
         cls.subject = Subject.objects.create(institution=cls.school, name="Maths", code="MAT")
         cls.other_subject = Subject.objects.create(institution=cls.other_school, name="Maths", code="MAT")
         cls.admin = User.objects.create_user("admin-mark@example.test", "Safe-pass-8392")
@@ -62,10 +63,13 @@ class ResultFixtureMixin:
     def make_question(cls, institution, subject, qtype, text, correct, option_count=3):
         question = Question.objects.create(institution=institution, subject=subject, question_type=qtype,
                                            text=text, created_by=cls.admin if institution == cls.school else cls.foreign,
-                                           status=Question.Status.APPROVED)
+                                           status=Question.Status.DRAFT)
         correct_orders = set(correct) if isinstance(correct, tuple) else {correct}
-        return [QuestionOption.objects.create(question=question, text=f"{text}-{i}", order=i, is_correct=i in correct_orders)
+        options = [QuestionOption.objects.create(question=question, text=f"{text}-{i}", order=i, is_correct=i in correct_orders)
                 for i in range(1, option_count + 1)]
+        question.status = Question.Status.APPROVED
+        question.save(update_fields=['status'])
+        return options
 
     def make_attempt(self, status=Attempt.Status.SUBMITTED, *, assessment=None, candidate=None, pass_mark=Decimal("2.00")):
         assessment = assessment or self.assessment
@@ -255,7 +259,8 @@ class MarkingServiceTests(ResultFixtureMixin, APITestCase):
     def test_assessment_passmark_edits_do_not_change_attempt_threshold(self):
         attempt = self.make_attempt(pass_mark=Decimal("1.00"))
         self.add_question(attempt, self.mcq[0].question, self.mcq, selection=[self.mcq[0]])
-        Assessment.objects.filter(pk=self.assessment.pk).update(pass_mark=Decimal("3.00"))
+        with self.assertRaises(ValidationError):
+            Assessment.objects.filter(pk=self.assessment.pk).update(pass_mark=Decimal("3.00"))
         result = mark_attempt(attempt.pk)
         self.assertEqual(result.pass_mark, Decimal("1.00"))
         self.assertTrue(result.passed)
@@ -263,7 +268,8 @@ class MarkingServiceTests(ResultFixtureMixin, APITestCase):
     def test_assessment_question_mark_edits_do_not_change_attempt_total(self):
         attempt = self.make_attempt()
         self.add_question(attempt, self.mcq[0].question, self.mcq, marks="2.00")
-        AssessmentQuestion.objects.filter(assessment=self.assessment, question=self.mcq[0].question).update(marks=Decimal("9.00"))
+        with self.assertRaises(ValidationError):
+            AssessmentQuestion.objects.filter(assessment=self.assessment, question=self.mcq[0].question).update(marks=Decimal("9.00"))
         self.assertEqual(mark_attempt(attempt.pk).total_marks, Decimal("2.00"))
 
     def test_result_attempt_is_database_unique(self):
@@ -333,7 +339,7 @@ class MarkingServiceTests(ResultFixtureMixin, APITestCase):
         self.add_question(attempt, self.mcq[0].question, self.mcq)
         result = mark_attempt(attempt.pk)
         with self.assertRaises(APIValidationError):
-            publish_result(result.pk)
+            publish_result(result.pk, actor=self.admin)
 
     def test_re_mark_preserves_withheld_state(self):
         attempt = self.make_attempt()
@@ -404,7 +410,7 @@ class ResultAPITests(ResultFixtureMixin, APITestCase):
 
     def test_candidate_only_sees_own_published_result_summary(self):
         result = self.completed_result()
-        publish_result(result.pk)
+        publish_result(result.pk, actor=self.admin)
         self.client.force_authenticate(self.student)
         response = self.client.get(f"{self.api}my/")
         self.assertEqual(response.status_code, 200)
@@ -419,7 +425,7 @@ class ResultAPITests(ResultFixtureMixin, APITestCase):
 
     def test_candidate_cannot_retrieve_another_candidate_result(self):
         result = self.completed_result()
-        publish_result(result.pk)
+        publish_result(result.pk, actor=self.admin)
         self.client.force_authenticate(self.foreign)
         self.assertEqual(self.client.get(f"{self.api}{result.pk}/").status_code, 404)
 
@@ -436,7 +442,7 @@ class ResultAPITests(ResultFixtureMixin, APITestCase):
 
     def test_candidate_can_retrieve_own_published_detail(self):
         result = self.completed_result()
-        publish_result(result.pk)
+        publish_result(result.pk, actor=self.admin)
         self.client.force_authenticate(self.student)
         response = self.client.get(f"{self.api}{result.pk}/")
         self.assertEqual(response.status_code, 200)
@@ -466,7 +472,7 @@ class ResultAPITests(ResultFixtureMixin, APITestCase):
 
     def test_admin_can_withhold_published_result(self):
         result = self.completed_result()
-        result = publish_result(result.pk)
+        result = publish_result(result.pk, actor=self.admin)
         self.client.force_authenticate(self.admin)
         response = self.client.post(f"{self.api}{result.pk}/withhold/", {}, format="json")
         self.assertEqual(response.status_code, 200)

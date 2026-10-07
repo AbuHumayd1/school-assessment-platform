@@ -1,3 +1,4 @@
+from institutions.workspace_access import WorkspaceAccessMixin
 from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -9,13 +10,19 @@ from rest_framework.throttling import ScopedRateThrottle
 from audit.models import AuditEvent
 from audit.services import record_event
 from tenants.models import InstitutionMembership
+from tenants.querysets import resolve_institution_context
 from .models import Institution
 from .permissions import CanManageInstitutionProfile, is_platform_administrator
 from .serializers import InstitutionSerializer
 from .onboarding import WorkspaceCreationSerializer
 
 
-class InstitutionViewSet(viewsets.ModelViewSet):
+class InstitutionViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
+    workspace_module = "institution"
+
+    def initial(self, request, *args, **kwargs):
+        self.workspace_module = None if self.action == "create_workspace" else "institution"
+        super().initial(request, *args, **kwargs)
     serializer_class = InstitutionSerializer
     permission_classes = (CanManageInstitutionProfile,)
     http_method_names = ("get", "post", "patch", "head", "options")
@@ -36,13 +43,18 @@ class InstitutionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if is_platform_administrator(user):
-            return Institution.objects.all()
-        return Institution.objects.filter(
+            queryset = Institution.objects.all()
+            selector = self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution")
+            return queryset.filter(pk=selector) if selector and str(selector).isdigit() else queryset.none() if selector else queryset
+        queryset = Institution.objects.filter(
             memberships__user=user,
             memberships__is_active=True,
             memberships__role=InstitutionMembership.Role.INSTITUTION_ADMIN,
             is_active=True,
         ).distinct()
+        if self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution"):
+            queryset = queryset.filter(pk=resolve_institution_context(self.request, {"institution_admin"}).pk)
+        return queryset
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -68,6 +80,7 @@ class InstitutionViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_update(self, serializer):
+        serializer.instance = Institution.objects.select_for_update().get(pk=serializer.instance.pk)
         original = serializer.instance
         changed_fields = [
             field for field in ("name", "institution_type", "logo", "email", "phone", "address", "timezone", "is_active")

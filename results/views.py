@@ -8,8 +8,10 @@ from rest_framework.views import APIView
 
 from attempts.models import Attempt
 from candidates.models import Candidate
+from tenants.querysets import resolve_institution_context
+from institutions.workspace_access import WorkspaceAccessMixin
 from .models import Result
-from .permissions import ADMIN_ROLES, MARKER_ROLES, institution_ids, is_platform_admin
+from .permissions import ADMIN_ROLES, MARKER_ROLES, is_platform_admin
 from .serializers import CandidateResultSerializer, StaffResultSerializer
 from .services import mark_attempt, publish_result, withhold_result
 
@@ -40,7 +42,7 @@ def _candidate_visible(result, now=None):
 class ResultListView(APIView):
     def get(self, request):
         _require_role(request.user, {"platform_admin", "institution_admin", "examiner", "teacher"})
-        queryset = Result.objects.filter(institution_id__in=institution_ids(request.user)).select_related("candidate", "assessment", "institution").prefetch_related("questions")
+        queryset = Result.objects.filter(institution=resolve_institution_context(request, {"institution_admin", "teacher", "examiner"})).select_related("candidate", "assessment", "institution").prefetch_related("questions")
         status_filter = request.query_params.get("status")
         if status_filter in Result.Status.values:
             queryset = queryset.filter(status=status_filter)
@@ -60,26 +62,27 @@ class ResultDetailView(APIView):
             raise NotFound()
         _require_role(request.user, {"platform_admin", "institution_admin", "examiner", "teacher"})
         result = get_object_or_404(Result.objects.select_related("candidate", "assessment", "institution").prefetch_related("questions__attempt_question"),
-                                   pk=result_id, institution_id__in=institution_ids(request.user))
+                                   pk=result_id, institution=resolve_institution_context(request, {"institution_admin", "teacher", "examiner"}))
         return Response(StaffResultSerializer(result).data)
 
 
 class MyResultsView(APIView):
     def get(self, request):
         results = Result.objects.filter(candidate__user=request.user, candidate__status=Candidate.Status.ACTIVE,
-                                        institution__is_active=True).select_related("assessment", "institution")
+                                        institution__is_active=True).select_related("assessment", "institution", "attempt")
         visible = [result for result in results if _candidate_visible(result)]
         return Response(CandidateResultSerializer(visible, many=True).data)
 
 
-class AttemptMarkView(APIView):
+class AttemptMarkView(WorkspaceAccessMixin, APIView):
+    workspace_module = "preparation"
     throttle_classes = (ScopedRateThrottle,)
     throttle_scope = "result_mark"
     @transaction.atomic
     def post(self, request, attempt_id):
         _require_role(request.user, MARKER_ROLES)
         attempt = get_object_or_404(Attempt.objects.select_related("institution"), pk=attempt_id,
-                                    institution_id__in=institution_ids(request.user, MARKER_ROLES))
+                                    institution=resolve_institution_context(request, MARKER_ROLES))
         _require_role(request.user, MARKER_ROLES, attempt.institution_id)
         result = mark_attempt(attempt.pk, actor=request.user)
         result = Result.objects.select_related("candidate", "assessment").prefetch_related("questions__attempt_question").get(pk=result.pk)
@@ -93,20 +96,21 @@ class ResultPublishView(APIView):
     def post(self, request, result_id):
         _require_role(request.user, ADMIN_ROLES)
         result = get_object_or_404(Result.objects.select_related("institution"), pk=result_id,
-                                   institution_id__in=institution_ids(request.user, ADMIN_ROLES))
+                                   institution=resolve_institution_context(request, ADMIN_ROLES))
         _require_role(request.user, ADMIN_ROLES, result.institution_id)
         result = publish_result(result.pk, actor=request.user)
         return Response(StaffResultSerializer(Result.objects.select_related("candidate", "assessment").prefetch_related("questions__attempt_question").get(pk=result.pk)).data)
 
 
-class ResultWithholdView(APIView):
+class ResultWithholdView(WorkspaceAccessMixin, APIView):
+    workspace_module = "preparation"
     throttle_classes = (ScopedRateThrottle,)
     throttle_scope = "result_withhold"
     @transaction.atomic
     def post(self, request, result_id):
         _require_role(request.user, ADMIN_ROLES)
         result = get_object_or_404(Result.objects.select_related("institution"), pk=result_id,
-                                   institution_id__in=institution_ids(request.user, ADMIN_ROLES))
+                                   institution=resolve_institution_context(request, ADMIN_ROLES))
         _require_role(request.user, ADMIN_ROLES, result.institution_id)
         result = withhold_result(result.pk, actor=request.user)
         return Response(StaffResultSerializer(Result.objects.select_related("candidate", "assessment").prefetch_related("questions__attempt_question").get(pk=result.pk)).data)

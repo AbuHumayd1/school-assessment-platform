@@ -3,6 +3,9 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError as ModelValidationError
+from django.db import transaction
+from audit.services import record_event
 
 from .models import Question, Topic
 from .import_service import import_questions_csv
@@ -38,6 +41,8 @@ class TopicViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
             institution_id__in=institution_ids_for_question_bank(self.request.user),
             institution__is_active=True,
         ).select_related("institution", "subject", "parent")
+        if self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution"):
+            queryset = queryset.filter(institution=self.get_write_institution())
         subject_id = self.request.query_params.get("subject")
         if subject_id:
             queryset = queryset.filter(subject_id=subject_id)
@@ -68,6 +73,7 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
             "approve": CanApproveQuestion,
             "archive": CanApproveQuestion,
             "import_csv": CanManageQuestionBank,
+            "new_revision": CanManageQuestionBank,
         }
         permission_class = permission_by_action.get(self.action, CanAccessQuestionBank)
         return [permission_class()]
@@ -138,13 +144,22 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED if not result["errors"] else status.HTTP_400_BAD_REQUEST,
         )
 
+    @transaction.atomic
     def _transition(self, question, allowed_from, to_status, set_reviewer=False):
+        Question.objects.select_for_update().filter(revision_family=question.revision_family, revision_number=1).first()
+        question = Question.objects.select_for_update().get(pk=question.pk)
         if question.status not in allowed_from:
             raise ValidationError({"status": f"Cannot transition a {question.status} question to {to_status}."})
         question.status = to_status
         if set_reviewer:
             question.reviewed_by = self.request.user
-        question.save(update_fields=("status", "reviewed_by", "updated_at"))
+        try:
+            question.save(update_fields=("status", "reviewed_by", "updated_at"))
+        except ModelValidationError as error:
+            raise ValidationError(error.messages)
+        record_event(institution=question.institution, actor=self.request.user,
+            event_type='question_revision_retired' if to_status == Question.Status.ARCHIVED else 'question_workflow_changed',
+            resource=question, metadata={'status': to_status, 'revision_number': question.revision_number})
         return Response(self.get_serializer(question).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="submit-for-review")
@@ -161,4 +176,16 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], permission_classes=[CanApproveQuestion])
     def archive(self, request, pk=None):
-        return self._transition(self.get_object(), {Question.Status.APPROVED}, Question.Status.ARCHIVED, set_reviewer=True)
+        return self._transition(self.get_object(), {Question.Status.APPROVED}, Question.Status.ARCHIVED)
+
+    @action(detail=True, methods=['post'], url_path='new-revision', permission_classes=[CanManageQuestionBank])
+    def new_revision(self, request, pk=None):
+        if request.data:
+            raise ValidationError({'detail': 'Revision creation accepts no client-controlled fields.'})
+        from .revisions import create_question_revision
+        source = self.get_object()
+        try:
+            revision = create_question_revision(source.pk, actor=request.user, institution=self.get_write_institution())
+        except ModelValidationError as error:
+            raise ValidationError(error.messages)
+        return Response(self.get_serializer(revision).data, status=status.HTTP_201_CREATED)

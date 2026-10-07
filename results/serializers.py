@@ -31,9 +31,10 @@ class StaffResultSerializer(serializers.ModelSerializer):
 class CandidateResultSerializer(serializers.ModelSerializer):
     assessment_title = serializers.CharField(source="assessment.title", read_only=True)
     assessment_type = serializers.CharField(source="assessment.assessment_type", read_only=True)
+    submitted_at = serializers.DateTimeField(source="attempt.submitted_at", read_only=True)
 
     class Meta:
         model = Result
         fields = ("id", "assessment_title", "assessment_type", "marks_obtained", "total_marks", "percentage",
-                  "grade", "passed", "published_at")
+                  "grade", "passed", "published_at", "submitted_at")
         read_only_fields = fields

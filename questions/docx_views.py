@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 
 from audit.services import record_event
 from assessments.quick_authentication import QuickExamAuthentication
+from institutions.workspace_access import enforce_workspace_mode
 from .docx_parser import limits, parse_docx, validate_preview
 from .models import DocxImportSession, QuestionMedia
 from .import_reconciliation import canonicalize, classify_block, initialize_blocks, template_bytes
@@ -487,6 +488,7 @@ class QuestionMediaView(APIView):
     def get(self, request, media_id):
         asset = get_object_or_404(QuestionMedia.objects.select_related('question','import_session'), pk=media_id)
         if asset.import_session_id:
+            enforce_workspace_mode(request, "questions")
             session = session_for(request, asset.import_session_id)
             if session.pk != asset.import_session_id: raise NotFound()
         elif not request.user.is_authenticated or not has_question_role(request.user, asset.question.institution_id, READ_ROLES):
@@ -494,7 +496,8 @@ class QuestionMediaView(APIView):
             from assessments.models import Assessment
             if not request.user.is_authenticated or not AttemptQuestion.objects.filter(question=asset.question,
                 attempt__candidate__user=request.user, attempt__candidate__status='active',
-                attempt__assessment__candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP,
+                attempt__assessment__candidate_access__in=(Assessment.CandidateAccess.ASSIGNED_GROUP, Assessment.CandidateAccess.SPECIFIC_CANDIDATES),
+                attempt__assessment__quick_configuration__isnull=True,
                 attempt__status='in_progress', attempt__expires_at__gt=timezone.now(), attempt__institution__is_active=True).exists(): raise NotFound()
         else:
             if write_institution_for_request(request).pk != asset.question.institution_id: raise NotFound()

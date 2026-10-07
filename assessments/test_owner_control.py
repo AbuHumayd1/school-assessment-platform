@@ -14,7 +14,7 @@ from subjects.models import Subject
 from tenants.models import InstitutionMembership
 from attempts.models import Attempt
 from results.models import Result
-from .models import Assessment, AssessmentQuestion, QuickExamConfiguration, QuickExamCredential, QuickExamSession
+from .models import Assessment, AssessmentCandidate, AssessmentQuestion, QuickExamConfiguration, QuickExamCredential, QuickExamSession
 
 
 class OwnerControlTests(APITestCase):
@@ -178,7 +178,7 @@ class OwnerControlTests(APITestCase):
         data = self.client.get("/api/v1/assessments/form-options/").data
         self.assertEqual({row["id"] for row in data["subjects"]}, {self.subject.pk, self.other_subject.pk})
         self.assertEqual([row["id"] for row in data["groups"]], [self.group.pk])
-        self.assertNotIn("specific_candidates", [row["value"] for row in data["choices"]["candidate_access"]])
+        self.assertIn("specific_candidates", [row["value"] for row in data["choices"]["candidate_access"]])
 
     def test_question_picker_is_approved_subject_scoped_and_bounded(self):
         data = self.client.get(f"/api/v1/assessments/question-options/?subject={self.subject.pk}").data
@@ -208,20 +208,24 @@ class OwnerControlTests(APITestCase):
         GroupMembership.objects.create(candidate=inactive, group=self.group)
         data = self.client.get(self.base + "eligibility/").data
         self.assertEqual([row["id"] for row in data["results"]], [self.candidate.pk])
-        self.assertNotIn("email", data["results"][0])
+        self.assertIn("email", data["results"][0])
 
     def test_inactive_group_is_not_eligible(self):
         Group.objects.filter(pk=self.group.pk).update(is_active=False)
         self.assertEqual(self.client.get(self.base + "eligibility/").data["count"], 0)
 
-    def test_specific_candidate_mode_is_explicitly_unsupported(self):
+    def test_specific_candidate_mode_is_supported_with_empty_population(self):
         Assessment.objects.filter(pk=self.exam.pk).update(candidate_access="specific_candidates")
         data = self.client.get(self.base + "eligibility/").data
-        self.assertFalse(data["delivery_supported"])
+        self.assertTrue(data["delivery_supported"])
         self.assertEqual(data["count"], 0)
 
     def quick_configuration(self):
-        Assessment.objects.filter(pk=self.exam.pk).update(candidate_access="access_code")
+        self.exam = Assessment.objects.create(institution=self.a, subject=self.subject, created_by=self.operator,
+            title='Synthetic Quick owner exam', assessment_type='test', duration_minutes=30, candidate_access='access_code')
+        self.link = AssessmentQuestion.objects.create(assessment=self.exam, question=self.question, order=1, marks=2)
+        self.base = f'/api/v1/assessments/{self.exam.pk}/'
+        AssessmentCandidate.objects.create(assessment=self.exam, candidate=self.candidate, assigned_by=self.operator)
         return self.client.put(self.base + "quick-access/", {"exam_code": "OWNER-TEST", "enabled": True}, format="json")
 
     def test_quick_candidate_roster_has_no_credential_state_or_secrets(self):
@@ -230,7 +234,7 @@ class OwnerControlTests(APITestCase):
         self.assertEqual(issued.status_code, 201)
         self.client.force_authenticate(self.teacher)
         data = self.client.get(self.base + "eligibility/").data
-        self.assertEqual(set(data["results"][0]), {"id", "candidate_id", "name", "status"})
+        self.assertEqual(set(data["results"][0]), {"id", "candidate_id", "name", "status", "email", "has_participated", "assignment"})
         self.assertNotIn(issued.data["initial_pin"], json.dumps(data))
 
     def test_quick_response_name_status_no_store_and_cross_tenant_candidate(self):
@@ -254,12 +258,12 @@ class OwnerControlTests(APITestCase):
             self.assertEqual(self.client.post(self.base + "quick-access/credentials/", {"candidate": self.candidate.pk}, format="json").status_code, 403)
 
     def test_mutation_and_workflow_audits_are_safe_and_not_duplicated(self):
+        Assessment.objects.filter(pk=self.exam.pk).update(start_at=timezone.now(), end_at=timezone.now() + timedelta(days=1))
         self.client.patch(self.base, {"description": "Owner-only draft change"}, format="json")
         self.client.patch(self.base + f"questions/{self.link.pk}/", {"marks": 3}, format="json")
         for action in ("submit-review", "request-changes", "submit-review", "approve", "reopen", "submit-review", "approve"):
             response = self.client.post(self.base + action + "/", {}, format="json")
             self.assertEqual(response.status_code, 200, response.data)
-        Assessment.objects.filter(pk=self.exam.pk).update(start_at=timezone.now(), end_at=timezone.now() + timedelta(days=1))
         self.assertEqual(self.client.post(self.base + "schedule/", {}, format="json").status_code, 200)
         self.assertEqual(self.client.post(self.base + "archive/", {}, format="json").status_code, 200)
         events = AuditEvent.objects.all()

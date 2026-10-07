@@ -5,15 +5,17 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
 from rest_framework import serializers, status
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from attempts.models import Attempt
 from attempts.serializers import CandidateAttemptSerializer, StartAttemptResponseSerializer
-from attempts.services import _validate_assessment_for_candidate, expire_attempt, start_access_attempt
-from attempts.tenancy import assessment_window_state
+from attempts.services import (
+    AVAILABILITY_MESSAGES, _validate_assessment_for_candidate, assessment_unavailability_reason,
+    expire_attempt, start_access_attempt,
+)
 from attempts.views import (
     CandidateAttemptAccessMixin, AttemptAnswerView, AttemptIntegrityView,
     AttemptQuestionDetailView, AttemptQuestionListView, AttemptReviewFlagView, AttemptSubmitView,
@@ -84,25 +86,32 @@ def session_summary(context):
     attempts = Attempt.objects.filter(candidate=candidate, assessment=assessment)
     active = attempts.filter(status=Attempt.Status.IN_PROGRESS, expires_at__gt=now).first()
     used = attempts.count()
-    window = assessment_window_state(assessment, now)
     available = False
+    reason = None
     try:
         _validate_assessment_for_candidate(assessment, candidate, now, access_mode="quick")
         available = True
-    except APIException:
-        pass
+    except APIException as error:
+        reason = assessment_unavailability_reason(error)
     state = "unavailable"
     if active:
         state = "in_progress"
-    elif assessment.status in {assessment.Status.APPROVED, assessment.Status.SCHEDULED}:
-        state = window if window != "open" else ("attempt_limit_reached" if used >= assessment.attempt_limit else "available" if available else "unavailable")
+        # Existing attempts retain resume-before-window/workflow semantics.
+        reason = None if assessment.resume_allowed else "resume_disabled"
+    elif reason in {"upcoming", "ended"}:
+        state = reason
+    elif available:
+        state = "attempt_limit_reached" if used >= assessment.attempt_limit else "available"
+        reason = "attempt_limit_reached" if used >= assessment.attempt_limit else None
     return {
         "candidate": {"candidate_id": candidate.candidate_id, "first_name": candidate.first_name, "last_name": candidate.last_name},
         "assessment": {"id": assessment.pk, "title": assessment.title, "description": assessment.description,
                        "duration_minutes": assessment.duration_minutes, "start_at": assessment.start_at,
                        "end_at": assessment.end_at, "attempt_limit": assessment.attempt_limit,
-                       "question_count": assessment.assessment_questions.count()},
+                       "question_count": assessment.assessment_questions.count(),
+                       "timezone": assessment.institution.timezone},
         "availability": {"state": state, "attempts_remaining": max(assessment.attempt_limit - used, 0),
+                         "reason": reason, "message": AVAILABILITY_MESSAGES.get(reason),
                          "can_start": available and not active and used < assessment.attempt_limit,
                          "can_resume": bool(active and assessment.resume_allowed),
                          "active_attempt_id": active.pk if active else None},
@@ -120,9 +129,13 @@ class QuickStartView(QuickProtectedView):
     def post(self, request):
         serializer = StrictInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        attempt, created = start_access_attempt(request.auth)
+        try:
+            attempt, created = start_access_attempt(request.auth)
+        except (PermissionDenied, ValidationError, NotFound) as error:
+            reason = assessment_unavailability_reason(error)
+            return Response({"detail": AVAILABILITY_MESSAGES[reason], "reason": reason}, status=error.status_code)
         if attempt is None:
-            return Response({"detail": "The assessment attempt limit has been reached."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": AVAILABILITY_MESSAGES["attempt_limit_reached"], "reason": "attempt_limit_reached"}, status=status.HTTP_403_FORBIDDEN)
         return Response(StartAttemptResponseSerializer(attempt).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
@@ -131,7 +144,7 @@ class QuickAttemptDetailView(QuickProtectedView, CandidateAttemptAccessMixin):
     def get(self, request, attempt_id):
         attempt = self.lock_attempt(request, attempt_id)
         expire_attempt(attempt, actor=self.actor(request))
-        return Response(CandidateAttemptSerializer(attempt).data)
+        return Response(CandidateAttemptSerializer(attempt, context={"request": request}).data)
 
 
 class QuickCurrentAttemptView(QuickAttemptDetailView):

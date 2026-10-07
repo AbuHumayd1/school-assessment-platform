@@ -1,3 +1,4 @@
+from institutions.workspace_access import enforce_workspace_mode
 from rest_framework.permissions import BasePermission
 
 from .tenancy import APPROVE_ROLES, READ_ROLES, REVIEW_ROLES, WRITE_ROLES, has_question_role, institution_ids_for_question_bank, is_platform_admin
@@ -5,6 +6,7 @@ from .tenancy import APPROVE_ROLES, READ_ROLES, REVIEW_ROLES, WRITE_ROLES, has_q
 
 class CanAccessQuestionBank(BasePermission):
     def has_permission(self, request, view):
+        enforce_workspace_mode(request, "questions")
         return bool(request.user and request.user.is_authenticated and institution_ids_for_question_bank(request.user).exists())
 
     def has_object_permission(self, request, view, obj):
@@ -13,6 +15,7 @@ class CanAccessQuestionBank(BasePermission):
 
 class CanManageTopics(CanAccessQuestionBank):
     def has_permission(self, request, view):
+        enforce_workspace_mode(request, "questions")
         if not request.user or not request.user.is_authenticated:
             return False
         if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -29,6 +32,7 @@ class CanManageTopics(CanAccessQuestionBank):
 
 class CanManageQuestionBank(BasePermission):
     def has_permission(self, request, view):
+        enforce_workspace_mode(request, "questions")
         user = request.user
         if not user or not user.is_authenticated:
             return False
@@ -64,6 +68,7 @@ class CanSubmitQuestion(CanManageQuestionBank):
 
 class CanReviewQuestion(CanManageQuestionBank):
     def has_permission(self, request, view):
+        enforce_workspace_mode(request, "questions")
         user = request.user
         if not user or not user.is_authenticated:
             return False
@@ -77,6 +82,7 @@ class CanReviewQuestion(CanManageQuestionBank):
 
 class CanApproveQuestion(CanReviewQuestion):
     def has_permission(self, request, view):
+        enforce_workspace_mode(request, "questions")
         user = request.user
         if not user or not user.is_authenticated:
             return False

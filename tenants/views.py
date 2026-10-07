@@ -1,3 +1,4 @@
+from institutions.workspace_access import WorkspaceAccessMixin
 from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -22,7 +23,8 @@ from .querysets import resolve_institution_context
 from .serializers import InstitutionMembershipSerializer
 
 
-class InstitutionMembershipViewSet(viewsets.ModelViewSet):
+class InstitutionMembershipViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
+    workspace_module = "memberships"
     serializer_class = InstitutionMembershipSerializer
     permission_classes = (IsAuthenticated,)
     http_method_names = ("get", "post", "patch", "head", "options")

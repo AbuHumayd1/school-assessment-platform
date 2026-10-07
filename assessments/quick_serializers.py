@@ -33,6 +33,10 @@ class CredentialResetSerializer(StrictInputSerializer):
     expires_at = serializers.DateTimeField(required=False, allow_null=True)
 
 
+class CredentialBatchSerializer(StrictInputSerializer):
+    expected_count = serializers.IntegerField(min_value=1, max_value=1000, required=False)
+
+
 class ConfigurationReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuickExamConfiguration

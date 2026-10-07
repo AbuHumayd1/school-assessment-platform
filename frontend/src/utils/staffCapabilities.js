@@ -30,3 +30,11 @@ export function examWorkflowActions(role, exam) {
   return []
 }
 export function canManageQuickAccess(role) { return administratorRoles.has(role) }
+
+export const managedCapabilities = new Set(['dashboard', 'assessments', 'candidates', 'submissions', 'results', 'reports'])
+export function canAccessWorkspaceCapability(role, capability, workspaceMode) {
+  return canAccessStaffCapability(role, capability) && (workspaceMode !== 'managed_exam' || managedCapabilities.has(capability))
+}
+export function canPrepareWorkspace(role, workspaceMode) {
+  return role === 'platform_admin' || workspaceMode !== 'managed_exam'
+}

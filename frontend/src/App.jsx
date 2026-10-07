@@ -5,6 +5,7 @@ import RouteScrollRestoration from './components/common/RouteScrollRestoration.j
 import RequireAuth from './components/common/RequireAuth.jsx'
 import RequireWorkspace from './components/common/RequireWorkspace.jsx'
 import { useWorkspace } from './context/WorkspaceContext.jsx'
+import { PlatformLayout, RequirePlatform, PlatformOverview, ClientsPage, CreateClientPage, ClientDetailPage, PlatformExamsPage, ManagedOverview } from './pages/platform/PlatformPages.jsx'
 import PublicLayout from './layouts/PublicLayout.jsx'
 import StaffLayout from './layouts/StaffLayout.jsx'
 import StudentLayout from './layouts/StudentLayout.jsx'
@@ -26,12 +27,13 @@ import QuestionsPage from './pages/staff/QuestionsPage.jsx'
 import ExamDetailPage from './pages/staff/ExamDetailPage.jsx'
 import ExamFormPage from './pages/staff/ExamFormPage.jsx'
 import CandidatesPage from './pages/staff/CandidatesPage.jsx'
+import OutcomesCentrePage from './pages/staff/OutcomesCentrePage.jsx'
 import StudentDashboardPage from './pages/student/StudentDashboardPage.jsx'
 import StudentExamsPage from './pages/student/StudentExamsPage.jsx'
 import StudentExamPage from './pages/student/StudentExamPage.jsx'
 import StudentResultsPage from './pages/student/StudentResultsPage.jsx'
 import { getRememberedAttemptPath, recordAttemptIntegrity, rememberActiveAttempt } from './services/attempts.js'
-import { canAccessStaffCapability } from './utils/staffCapabilities.js'
+import { canAccessStaffCapability, canAccessWorkspaceCapability, canPrepareWorkspace } from './utils/staffCapabilities.js'
 
 function ActiveAttemptNavigationGuard() {
   const { pathname } = useLocation()
@@ -91,15 +93,24 @@ const staffPages = [
 ]
 
 function StaffIndex() {
-  const { currentRole } = useWorkspace()
+  const { currentRole, currentWorkspace } = useWorkspace()
+  if (currentWorkspace?.institution.workspace_mode === 'managed_exam') return <ManagedOverview />
   if (!canAccessStaffCapability(currentRole, 'dashboard')) return <Navigate to="/app/questions" replace />
   return <WorkspaceDashboardPage />
 }
 
 function StaffPage({ title, capability }) {
-  const { currentRole } = useWorkspace()
-  if (!canAccessStaffCapability(currentRole, capability)) return <Navigate to="/app/questions" replace />
+  const { currentRole, currentWorkspace } = useWorkspace()
+  if (!canAccessWorkspaceCapability(currentRole, capability, currentWorkspace?.institution.workspace_mode)) return <Navigate to="/app" replace />
+  if (['results', 'reports', 'submissions'].includes(capability)) return <OutcomesCentrePage section={capability} />
   return <PlaceholderPage title={title} />
+}
+
+function PreparationPage({ children }) {
+  const { currentRole, currentWorkspace } = useWorkspace()
+  const mode = currentWorkspace?.institution.workspace_mode
+  if (!canPrepareWorkspace(currentRole, mode)) return <Navigate to="/app" replace />
+  return children
 }
 
 export default function App() {
@@ -127,14 +138,24 @@ export default function App() {
           <Route path="complete" element={<QuickCompletePage />} />
         </Route>
 
+        <Route path="platform" element={<RequirePlatform><PlatformLayout /></RequirePlatform>}>
+          <Route index element={<PlatformOverview />} />
+          <Route path="clients" element={<ClientsPage />} />
+          <Route path="clients/new" element={<CreateClientPage />} />
+          <Route path="clients/:clientId" element={<ClientDetailPage />} />
+          <Route path="exams" element={<PlatformExamsPage />} />
+          <Route path="reports" element={<ClientsPage reports />} />
+          <Route path="*" element={<Navigate to="/platform" replace />} />
+        </Route>
+
         <Route path="app" element={<RequireWorkspace><StaffLayout /></RequireWorkspace>}>
           <Route index element={<StaffIndex />} />
           <Route path="exams" element={<ExamsPage />} />
-          <Route path="questions" element={<QuestionsPage />} />
-          <Route path="questions/import/word/:sessionId" element={<QuestionsPage />} />
-          <Route path="exams/new" element={<ExamFormPage />} />
+          <Route path="questions" element={<PreparationPage><QuestionsPage /></PreparationPage>} />
+          <Route path="questions/import/word/:sessionId" element={<PreparationPage><QuestionsPage /></PreparationPage>} />
+          <Route path="exams/new" element={<PreparationPage><ExamFormPage /></PreparationPage>} />
           <Route path="exams/:assessmentId" element={<ExamDetailPage />} />
-          <Route path="exams/:assessmentId/edit" element={<ExamFormPage />} />
+          <Route path="exams/:assessmentId/edit" element={<PreparationPage><ExamFormPage /></PreparationPage>} />
           <Route path="students" element={<CandidatesPage />} />
           {staffPages.map(([path, title, capability]) => (
             <Route key={path} path={path} element={<StaffPage title={title} capability={capability} />} />

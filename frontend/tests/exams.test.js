@@ -128,7 +128,7 @@ test('section navigation is deep-linked and Quick Access is admin-only', async (
   assert.match(teacher, /section=questions/)
   const admin = html(ExamSections, { section: 'access', administrator: canManageQuickAccess('institution_admin'), t })
   assert.match(admin, /section=access/)
-  assert.doesNotMatch(admin, /Submissions|Results/)
+  assert.match(admin, /Submissions/); assert.match(admin, /Results/); assert.match(admin, /Reports/)
 }))
 
 test('one-time disclosure and reset/revoke confirmations identify the candidate', async () => modules(async load => {
@@ -164,8 +164,8 @@ test('create/edit configuration supports real safe choices and does not expose e
   assert.match(markup, /name="duration_minutes"/)
   assert.doesNotMatch(markup, /name="status"/)
   const source = await readFile(new URL('../src/pages/staff/ExamFormPage.jsx', import.meta.url), 'utf8')
-  assert.match(source, /question-options/)
-  assert.match(source, /questions\//)
+  assert.doesNotMatch(source, /QuestionAttachment|Approved question/ )
+  assert.match(source, /Manage Questions/)
   assert.doesNotMatch(source, /fetch\(/)
 }))
 
@@ -240,11 +240,17 @@ async function applicationRoutes(run, obsoleteExams = false) {
       calls.push(key)
       let data
       if (key === '7:::1') data = { count: 1, results: [fixtureExam] }
+      else if (/^7:(results|reports|submissions)::1$/.test(key)) data = { count: 1, results: [{ ...fixtureExam, report_available: false, summary: { total_candidates: 1, not_started_count: 1, in_progress_count: 0, submitted_count: 0, auto_submitted_count: 0, not_submitted_count: 0, results_count: 0, passed_count: 0, failed_count: 0, average_percentage: null, pass_rate: null, release_state: 'no_results' } }] }
       else if (key === '7:11') data = fixtureExam
       else if (key === '7:new:form') data = { options, exam: null }
       else if (key === '7:11:form') data = { options, exam: fixtureExam }
-      else if (key === '7:11:questions') data = [{ id: 1, order: 1, marks: '2.00', question }]
-      else if (key === '7:11:candidates:1') data = { mode: 'access_code', workflow_status: 'draft', window: 'open', count: 1, results: [{ id: 5, candidate_id: 'C-1', name: 'Amina Candidate', status: 'active' }] }
+      else if (key.startsWith('7:11:readiness:')) data = { count: 1, results: [] }
+      else if (key.startsWith('7:11:access-eligibility:')) data = { count: 1, eligible_count: 1, results: [] }
+      else if (key === '7:setup-options') data = options
+      else if (key.startsWith('7:11:questions')) data = { count: 1, results: [{ id: 1, order: 1, marks: '2.00', question }] }
+      else if (key.startsWith('7:11:candidates:')) data = { mode: 'access_code', workflow_status: 'draft', window: 'open', count: 1, results: [{ id: 5, candidate_id: 'C-1', name: 'Amina Candidate', status: 'active' }] }
+      else if (/^7:11:(overview|submissions|results|reports):/.test(key)) data = { count: 1, results: [{ candidate: 5, candidate_id: 'C-1', name: 'Amina Candidate', submission_status: 'not_started', result: null }], summary: { total_candidates: 1, not_started_count: 1, in_progress_count: 0, submitted_count: 0, auto_submitted_count: 0, not_submitted_count: 0, results_count: 0, average_percentage: null, pass_rate: null, highest_percentage: null, lowest_percentage: null }, delivery_supported: true }
+      else if (key.endsWith(':submission:undefined')) data = null
       else if (key.includes(':config:')) data = { exam_code: 'ROUTE-EXAM', enabled: true }
       else if (key.includes(':credentials:')) data = { count: 1, results: [{ id: 91, candidate: 5, candidate_name: 'Amina Candidate', candidate_identifier: 'C-1', candidate_status: 'active', active: true, version: 987654, expires_at: null, generated_at: '2026-10-01T00:00:00Z', revoked_at: null }] }
       else if (key === '7::1') data = { count: 0, results: [] }
@@ -287,7 +293,10 @@ test('actual application routes render Exams list, create, detail and edit pages
   assert.deepEqual(list.calls, ['7:::1'])
   const create = render('/app/exams/new')
   assert.match(create.markup, /<h1>Create Exam<\/h1>/)
-  assert.match(create.markup, /name="title"/)
+  assert.match(create.markup, /How will candidates enter this exam/)
+  assert.match(create.markup, /Quick Exam/)
+  assert.match(create.markup, /Through their account/)
+  assert.doesNotMatch(create.markup, /name="title"/)
   assert.deepEqual(create.calls, ['7:new:form']) // The literal new route wins over :assessmentId.
   const detail = render('/app/exams/11')
   assert.match(detail.markup, /Exam sections/)
@@ -295,13 +304,25 @@ test('actual application routes render Exams list, create, detail and edit pages
   assert.ok(detail.calls.includes('7:11'))
   const edit = render('/app/exams/11/edit')
   assert.match(edit.markup, /<h1>Edit Exam<\/h1>/)
-  assert.match(edit.markup, /Attached questions/)
+  assert.match(edit.markup, /Manage Questions/)
+  assert.doesNotMatch(edit.markup, /Attached questions|Approved question/)
   assert.ok(edit.calls.includes('7:11:form'))
   for (const result of [create, detail, edit]) assert.doesNotMatch(result.markup, /Content will appear here/)
 }))
 
+test('actual main Results Reports and Submissions routes render assessment centres instead of placeholders', async () => applicationRoutes(async render => {
+  for (const section of ['results', 'reports', 'submissions']) {
+    const { markup, calls } = render(`/app/${section}`)
+    assert.match(markup, /Client examination/)
+    assert.match(markup, /Search assessments/)
+    assert.match(markup, new RegExp(`/app/exams/11\\?section=${section}`))
+    assert.deepEqual(calls, [`7:${section}::1`])
+    assert.doesNotMatch(markup, /Content will appear here|This area is ready for its page content/)
+  }
+}))
+
 test('actual detail query routing selects sections and protects Access', async () => applicationRoutes(async render => {
-  for (const section of ['overview', 'questions', 'candidates', 'access']) {
+  for (const section of ['overview', 'questions', 'candidates', 'access', 'submissions', 'results', 'reports']) {
     const { markup, calls } = render(`/app/exams/11?section=${section}`)
     assert.match(markup, /Client examination/)
     const selectedLink = [...markup.matchAll(/<a\b[^>]*>/g)].find(match => match[0].includes(`href="/app/exams/11?section=${section}"`))
@@ -309,7 +330,7 @@ test('actual detail query routing selects sections and protects Access', async (
     assert.match(selectedLink[0], /aria-current="page"/)
     assert.ok(calls.includes('7:11'))
     if (section === 'overview') assert.match(markup, /Total marks/)
-    if (section === 'questions') assert.match(markup, /Owner explanation/)
+    if (section === 'questions') { assert.match(markup, /Inspection question/); assert.match(markup, /View question/); assert.match(markup, /Add Questions/) }
     if (section === 'candidates') assert.match(markup, /Amina Candidate/)
     if (section === 'access') assert.match(markup, /Generate credential/)
   }
@@ -328,7 +349,7 @@ test('actual detail query routing selects sections and protects Access', async (
 
 test('route regression assertions reject the obsolete placeholder while deferred routes retain it', async () => {
   await applicationRoutes(async render => {
-    for (const path of ['/app/submissions', '/app/results', '/app/reports']) assert.match(render(path).markup, /Content will appear here/)
+    for (const path of ['/app/staff', '/app/classes', '/app/settings']) assert.match(render(path).markup, /Content will appear here/)
   })
   await applicationRoutes(async render => {
     const obsolete = render('/app/exams')
