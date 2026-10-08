@@ -1,3 +1,5 @@
+import ThemeSwitch from '../../components/common/ThemeSwitch.jsx'
+import MadaarMark from '../../components/common/MadaarMark.jsx'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Button from '../../components/common/Button.jsx'
@@ -54,9 +56,9 @@ export function QuickExamFrame({ session, live = false, complete = false, t = te
   const candidate = session?.candidate
   return <div className={`quick-exam-layout${live ? ' quick-exam-layout--live public-layout--exam' : ''}`}>
     {!live && <header className="quick-exam-header">
-      <div className="quick-exam-header__brand"><span className="wordmark__mark" aria-hidden="true">{t('SA')}</span><span>{t('School Assessment Platform')}</span></div>
+      <div className="quick-exam-header__brand"><span className="wordmark__mark" aria-hidden="true"><MadaarMark /></span><span>{t('Powered by Madaar')}</span></div>
       {session && <div className="quick-exam-header__context"><strong dir="auto">{session.assessment.title}</strong><span dir="auto">{[candidate.first_name, candidate.last_name].filter(Boolean).join(' ')} <bdi>{candidate.candidate_id}</bdi></span></div>}
-      <div className="quick-exam-header__actions"><PublicLanguageSwitcher />{session && !complete && session.availability.state !== 'in_progress' && <Button variant="outline" loading={endBusy} onClick={onEnd}>{t('End Session')}</Button>}</div>
+      <div className="quick-exam-header__actions"><ThemeSwitch locale={t('Take an Exam') === 'Take an Exam' ? 'en' : 'ar'} /><PublicLanguageSwitcher />{session && !complete && session.availability.state !== 'in_progress' && <Button variant="outline" loading={endBusy} onClick={onEnd}>{t('End Session')}</Button>}</div>
     </header>}
     <main className={live ? 'public-main' : 'quick-exam-main'}>{endError && <p role="alert">{endError}</p>}{children}</main>
   </div>

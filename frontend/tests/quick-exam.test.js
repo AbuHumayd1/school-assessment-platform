@@ -183,7 +183,7 @@ test('public navigation promotes candidate access into desktop/mobile actions an
       const mobile = drawer.slice(drawer.indexOf('class="public-mobile-drawer__actions"'), drawer.indexOf('class="public-language-switcher"'))
       for (const actions of [header, mobile]) {
         const links = [...actions.matchAll(/<a([^>]+)>(.*?)<\/a>/g)]
-        assert.deepEqual(links.map(([, attrs]) => attrs.match(/href="([^"]+)"/)[1]), ['/take-exam', '/signin', '/setup'])
+        assert.deepEqual(links.map(([, attrs]) => attrs.match(/href="([^"]+)"/)[1]), ['/take-exam', '/signin', '/contact'])
         assert.match(links[0][1], /button--outline.*public-exam-cta/)
         assert.equal(links[0][2], quickExamTranslate(locale, 'Take an Exam'))
         assert.match(links[1][1], /button--ghost/)
@@ -243,7 +243,7 @@ test('actual application routes keep entry public and place every verified Quick
         assert.ok(html.includes(`lang="${locale}" dir="${locale === 'ar' ? 'rtl' : 'ltr'}"`))
         if (path === '/take-exam') {
           assert.match(html, /public-header|public-footer|quick-exam-entry__card/)
-          assert.match(html, /href="\/features"/); assert.match(html, /href="\/signin"/); assert.match(html, /href="\/setup"/)
+          assert.match(html, /href="\/#managed-examinations"/); assert.match(html, /href="\/signin"/); assert.match(html, /href="\/contact"/)
         } else {
           assert.match(html, /quick-exam-layout/)
           assert.doesNotMatch(html, /public-nav|public-header|public-footer|public-marketing-motion|data-public-reveal/)

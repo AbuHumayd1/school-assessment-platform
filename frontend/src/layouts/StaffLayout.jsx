@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
+import ThemeSwitch from '../components/common/ThemeSwitch.jsx'
 import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
 import LogoWordmark from '../components/common/LogoWordmark.jsx'
@@ -71,7 +72,7 @@ export default function StaffLayout() {
 
       <Drawer open={menuOpen} onClose={closeMenu} title="Navigation" side={direction === 'rtl' ? 'right' : 'left'} className="staff-mobile-drawer">
         <StaffNavigation onNavigate={closeMenu} />
-        <LanguageModeControl />
+        <ThemeSwitch /><LanguageModeControl />
       </Drawer>
 
       <div className="staff-workspace">
@@ -88,7 +89,7 @@ export default function StaffLayout() {
             <span className="workspace-role-label">{localizedLabel(roleLabels[currentRole] || currentRole, roleArabicTranslations[currentRole] || currentRole)}</span>
             {currentRole === 'platform_admin' && <Link className="managed-context" to="/platform" onClick={clearSelection}>{localizedLabel('Return to Platform', '\u0627\u0644\u0639\u0648\u062f\u0629 \u0625\u0644\u0649 \u0627\u0644\u0645\u0646\u0635\u0629')}</Link>}
           </div>
-          <LanguageModeControl />
+          <ThemeSwitch /><LanguageModeControl />
           <AccountMenu />
         </header>
 
@@ -104,7 +105,7 @@ export default function StaffLayout() {
             {currentRole === 'platform_admin' && <Link className="managed-context" to="/platform" onClick={clearSelection}>{localizedLabel('Return to Platform', '\u0627\u0644\u0639\u0648\u062f\u0629 \u0625\u0644\u0649 \u0627\u0644\u0645\u0646\u0635\u0629')}</Link>}
           </div>
           <div className="staff-topbar__actions">
-            <LanguageModeControl />
+            <ThemeSwitch /><LanguageModeControl />
             <button className="icon-button notification-button" type="button" aria-label="Notifications"><Icon name="bell" /><span className="notification-dot" /></button>
             <AccountMenu />
           </div>

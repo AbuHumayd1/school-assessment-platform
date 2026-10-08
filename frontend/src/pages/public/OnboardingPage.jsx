@@ -14,6 +14,7 @@ const types = [
   ['school', 'School / College'], ['training', 'Course / Training Provider'],
   ['professional_exam', 'Professional / Certification Exams'], ['madrasah', 'Madrasah / Islamic Institute'],
   ['cbt', 'CBT / Tutorial Centre'], ['competition', 'Competition / Educational Programme'], ['other', 'Other'],
+  ['ngo', 'NGO / Educational Organisation'], ['higher_education', 'University / Higher Institution'],
 ]
 const fieldErrors = {
   first_name: 'Enter your first name.', last_name: 'Enter your last name.',
@@ -91,6 +92,10 @@ export default function OnboardingPage() {
       }
     } catch (error) {
       if (userId && accountId.current !== userId) return
+      if (error.data?.code === 'public_workspace_creation_disabled') {
+        setMessage('Institution Workspace is currently in pilot. Contact Madaar to discuss access for your institution.')
+        return
+      }
       if (userId && [401, 403].includes(error.status)) {
         // A CSRF failure with a live session must not be treated as a logout.
         try { await apiFetch('auth/me/') } catch (sessionError) {
@@ -120,12 +125,19 @@ export default function OnboardingPage() {
     <Button onClick={refreshUser}>Try again</Button>
     <Button as={Link} to="/" variant="outline">Back to website</Button>
   </section></PublicLocaleTree>
+  if (!user) return <PublicLocaleTree><section className="account-access-panel">
+    <LogoWordmark />
+    <h1>Institution Workspace Pilot</h1>
+    <p>Institution Workspace is currently in pilot. Contact Madaar to discuss access for your institution.</p>
+    <Button as={Link} to="/contact?interest=institution-pilot">Request Pilot Access</Button>
+    <Button as={Link} to="/signin" state={{ from: { pathname: '/setup' } }} variant="outline">Sign In</Button>
+  </section></PublicLocaleTree>
   return <PublicLocaleTree><div className="public-page public-setup onboarding">
     <aside className="setup-aside">
-      <div className="setup-aside__top"><LogoWordmark light ariaLabel={locale === 'ar' ? translatePublicText('School Assessment Platform home') : 'School Assessment Platform home'} /><span>{user ? 'Step 2 of 2' : 'Step 1 of 2'}</span></div>
-      <div className="setup-aside__main"><h1>Set up your workspace</h1><p>A place to organise your assessments and manage results.</p>
+      <div className="setup-aside__top"><LogoWordmark light ariaLabel={locale === 'ar' ? translatePublicText('Madaar home') : 'Madaar home'} /><span>{user ? 'Step 2 of 2' : 'Step 1 of 2'}</span></div>
+      <div className="setup-aside__main"><h1>Set up your institution</h1><p>Create your Madaar workspace and configure the foundation your institution will use across its assessment journey.</p>
         <ol className="onboarding-steps"><li aria-current={!user ? 'step' : undefined}>Create your account</li><li aria-current={user ? 'step' : undefined}>Create your workspace</li></ol>
-        <p>Start on your own or with an organisation. You can add candidates and assessments later.</p>
+        <p>Configure your institution details. You can add candidates and assessments later.</p>
       </div>
       <div className="setup-aside__footer"><Link to="/">Back to website</Link></div>
     </aside>
@@ -152,7 +164,7 @@ export default function OnboardingPage() {
               <SetupField name="timezone" label="Time zone" errors={errors}><select {...inputProps('timezone', { defaultValue: timezone, dir: 'ltr' })}>{zones.map(zone => <option key={zone} value={zone}>{zone}</option>)}</select></SetupField>
             </>}
           </fieldset>
-          {message && <p className="auth-error" role="alert" aria-live="polite">{message}</p>}
+          {message && <p className="auth-error" role="alert" aria-live="polite">{message}{message === 'Institution Workspace is currently in pilot. Contact Madaar to discuss access for your institution.' && <> <Link to="/contact?interest=institution-pilot">Request Pilot Access</Link></>}</p>}
           <Button type="submit" className="setup-submit" loading={busy}>{busy ? (user ? 'Opening your workspace…' : 'Creating your account…') : user ? createdId ? 'Open workspace' : 'Create workspace' : 'Create account'}</Button>
         </form>
         {!user && <p className="setup-help">Already have an account? <Link to="/signin" state={{ from: { pathname: '/setup' } }}>Sign In</Link></p>}

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
@@ -149,11 +150,30 @@ class PilotAccessTests(APITestCase):
 
     def test_group_quick_unavailable_and_locked_switch_rejected_without_writes(self):
         group = Group.objects.create(institution=self.school, name='Pilot group', code='PILOT')
-        Assessment.objects.filter(pk=self.exam.pk).update(candidate_access='assigned_group', group=group)
-        self.assertEqual(self.client.put(self.base + 'quick-access/', {'exam_code': 'GROUP-QUICK'}, format='json').status_code, 400)
-        Assessment.objects.filter(pk=self.exam.pk).update(candidate_access='specific_candidates', group=None, status='approved')
-        self.assertEqual(self.client.put(self.base + 'quick-access/', {'exam_code': 'LOCKED-QUICK'}, format='json').status_code, 400)
+        grouped = Assessment.objects.create(institution=self.school, subject=self.subject, created_by=self.platform,
+            title='Group delivery', assessment_type='test', duration_minutes=30, candidate_access='assigned_group', group=group)
+        before_audit = AuditEvent.objects.count()
+        self.assertEqual(self.client.put(f'/api/v1/assessments/{grouped.pk}/quick-access/?institution={self.school.pk}', {'exam_code': 'GROUP-QUICK'}, format='json').status_code, 400)
+        self.assertEqual(AuditEvent.objects.count(), before_audit)
         self.assertFalse(QuickExamConfiguration.objects.exists())
+        self.assertFalse(QuickExamCredential.objects.exists())
+        self.assertFalse(QuickExamSession.objects.exists())
+        grouped.refresh_from_db()
+        self.assertEqual(grouped.candidate_access, 'assigned_group')
+        locked = Assessment.objects.create(institution=self.school, subject=self.subject, created_by=self.platform,
+            title='Approved account delivery', assessment_type='test', duration_minutes=30, candidate_access='specific_candidates')
+        source = self.exam.assessment_questions.get()
+        AssessmentQuestion.objects.create(assessment=locked, question=source.question, order=source.order, marks=source.marks)
+        locked.status = 'approved'
+        locked.save(update_fields=['status'])
+        before_audit = AuditEvent.objects.count()
+        self.assertEqual(self.client.put(f'/api/v1/assessments/{locked.pk}/quick-access/?institution={self.school.pk}', {'exam_code': 'LOCKED-QUICK'}, format='json').status_code, 400)
+        self.assertFalse(QuickExamConfiguration.objects.exists())
+        self.assertFalse(QuickExamCredential.objects.exists())
+        self.assertFalse(QuickExamSession.objects.exists())
+        self.assertEqual(AuditEvent.objects.count(), before_audit)
+        locked.refresh_from_db()
+        self.assertEqual(locked.candidate_access, 'specific_candidates')
 
     def test_sheet_only_assigned_active_candidates_preserves_candidates_users_and_hashes_pins(self):
         self.assign(self.candidates[:4]); self.configure()
@@ -251,20 +271,30 @@ class PilotAccessTests(APITestCase):
         self.assertFalse(AuditEvent.objects.filter(event_type='assessment_candidate_assigned').exists())
 
     def test_safe_removal_revokes_new_quick_eligibility_without_deleting_candidate(self):
-        self.assign(self.candidates[:1]); self.configure(); row = self.rows(self.sheet())[0]
+        self.assign(self.candidates[:2]); self.configure(); rows = self.rows(self.sheet()); row = rows[0]
         client = APIClient(enforce_csrf_checks=True)
         client.defaults['HTTP_X_CSRFTOKEN'] = client.get('/api/v1/auth/csrf/').data['csrfToken']
         self.assertEqual(client.post('/api/v1/quick-exam/verify/', {'exam_code': row['Exam Code'],
             'candidate_id': row['Candidate ID'], 'pin': row['PIN']}, format='json').status_code, 200)
         self.assertEqual(self.client.delete(self.base + f'candidate-assignments/{self.candidates[0].pk}/').status_code, 204)
-        self.assertEqual(client.get('/api/v1/quick-exam/session/').status_code, 401)
+        Assessment.objects.filter(pk=self.exam.pk).update(status='scheduled')
+        summary = client.get('/api/v1/quick-exam/session/')
+        self.assertEqual(summary.status_code, 200)
+        self.assertFalse(summary.data['availability']['can_start'])
+        self.assertEqual(client.post('/api/v1/quick-exam/start/', {}, format='json').status_code, 403)
+        self.assertFalse(Attempt.objects.exists())
+        other = APIClient(enforce_csrf_checks=True)
+        other.defaults['HTTP_X_CSRFTOKEN'] = other.get('/api/v1/auth/csrf/').data['csrfToken']
+        self.assertEqual(other.post('/api/v1/quick-exam/verify/', {'exam_code': rows[1]['Exam Code'],
+            'candidate_id': rows[1]['Candidate ID'], 'pin': rows[1]['PIN']}, format='json').status_code, 200)
+        self.assertEqual(other.post('/api/v1/quick-exam/start/', {}, format='json').status_code, 201)
         self.assertTrue(Candidate.objects.filter(pk=self.candidates[0].pk).exists())
 
     def test_same_candidate_separate_exam_credentials_and_overlapping_tenant_ids(self):
         self.assign(self.candidates[:1]); self.configure()
         first = self.rows(self.sheet())[0]
         second = Assessment.objects.create(institution=self.school, subject=self.subject, created_by=self.platform,
-            title='Second pilot', assessment_type='test', duration_minutes=30, candidate_access='specific_candidates')
+            title='Second pilot', assessment_type='test', duration_minutes=30, candidate_access='access_code')
         AssessmentCandidate.objects.create(assessment=second, candidate=self.candidates[0], assigned_by=self.platform)
         configuration = QuickExamConfiguration.objects.create(assessment=second, exam_code='PILOT-SECOND', enabled=True)
         other, pin = generate_credential(configuration, self.candidates[0], self.platform)
@@ -284,8 +314,37 @@ class PilotAccessTests(APITestCase):
         self.assertEqual(client.get('/api/v1/quick-exam/session/').status_code, 200)
         start = client.post('/api/v1/quick-exam/start/', {}, format='json')
         self.assertEqual(start.status_code, 201, start.data)
+        assignments = list(AssessmentCandidate.objects.order_by('pk').values())
+        candidates = list(Candidate.objects.order_by('pk').values())
+        history = list(Attempt.objects.order_by('pk').values())
+        audit_count = AuditEvent.objects.count()
+        # Scheduled exams reject setup mutations before the per-candidate
+        # participation guard, even for the authorized platform operator.
+        self.assertEqual(self.client.delete(self.base + f'candidate-assignments/{self.candidates[0].pk}/').status_code, 403)
+        self.assertEqual(list(AssessmentCandidate.objects.order_by('pk').values()), assignments)
+        self.assertEqual(list(Candidate.objects.order_by('pk').values()), candidates)
+        self.assertEqual(list(Attempt.objects.order_by('pk').values()), history)
+        self.assertEqual(AuditEvent.objects.count(), audit_count)
         self.assertEqual(client.post('/api/v1/quick-exam/start/', {}, format='json').status_code, 200)
         self.assertEqual(Attempt.objects.count(), 1)
+        attempt = Attempt.objects.get()
+        attempt.status = Attempt.Status.SUBMITTED
+        attempt.submitted_at = timezone.now()
+        attempt.save(update_fields=['status', 'submitted_at'])
+        from results.services import mark_attempt
+        from results.models import Result
+        result = mark_attempt(attempt.pk)
+        history = list(Attempt.objects.order_by('pk').values())
+        results = list(Result.objects.order_by('pk').values())
+        audit_count = AuditEvent.objects.count()
+        self.assertEqual(self.client.delete(self.base + f'candidate-assignments/{self.candidates[0].pk}/').status_code, 403)
+        self.assertEqual(list(AssessmentCandidate.objects.order_by('pk').values()), assignments)
+        self.assertEqual(list(Candidate.objects.order_by('pk').values()), candidates)
+        self.assertEqual(list(Attempt.objects.order_by('pk').values()), history)
+        self.assertEqual(list(Result.objects.order_by('pk').values()), results)
+        self.assertEqual(AuditEvent.objects.count(), audit_count)
+        self.assertTrue(Attempt.objects.filter(pk=attempt.pk, status=Attempt.Status.SUBMITTED).exists())
+        self.assertTrue(Result.objects.filter(pk=result.pk, attempt=attempt).exists())
 
     def test_account_login_direct_assignment_still_starts_and_quick_mode_blocks_portal_entry(self):
         user = User.objects.create_user('pilot-candidate@example.test')
@@ -381,8 +440,10 @@ class PilotAccessTests(APITestCase):
 
     def test_legacy_configured_specific_candidate_exam_keeps_quick_delivery(self):
         self.configure()
-        # Represent a historical configured Quick exam without changing real records.
-        Assessment.objects.filter(pk=self.exam.pk).update(candidate_access='specific_candidates')
+        # Migration-era fixture only: this persisted shape predates the current
+        # delivery guard and cannot be constructed through today's write API.
+        with connection.cursor() as cursor:
+            cursor.execute('UPDATE assessments_assessment SET candidate_access = %s WHERE id = %s', ['specific_candidates', self.exam.pk])
         data = self.client.get(self.base).data
         self.assertEqual(data['delivery_mode'], 'quick_exam')
         self.assertEqual(data['eligibility_strategy'], 'specific_candidates')

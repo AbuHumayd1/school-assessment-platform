@@ -2,6 +2,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APITestCase
 from django.contrib import admin as django_admin
 from django.test import RequestFactory
+from django.test import override_settings
 from types import SimpleNamespace
 
 from accounts.models import User
@@ -320,6 +321,7 @@ class PlatformFoundationTests(ResultFixtureMixin, APITestCase):
         self.client.force_authenticate(self.admin)
         self.assertEqual(self.client.get(f"/api/v1/users/?institution={self.school.pk}").status_code, 403)
 
+    @override_settings(MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED=True)
     def test_managed_admin_can_deliberately_create_separate_workspace(self):
         InstitutionMembership.objects.create(user=self.admin, institution=self.other_school, role="institution_admin")
         self.client.force_authenticate(self.admin)

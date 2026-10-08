@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import React from 'react'
 import { quickExamAr } from '../utils/quickExamLocale.js'
 import { onboardingAr } from './onboardingTranslations.js'
+import { madaarAr } from './madaarTranslations.js'
+import { applyInterfaceLocale, readPublicLocale, persistInterfaceLanguage, LANGUAGE_EVENT } from '../utils/interfaceLanguage.js'
 
 const PublicLocaleContext = createContext(null)
 const KEY = 'school-assessment.public-locale'
@@ -235,14 +237,17 @@ const roadmapAr = {
 Object.assign(ar, { 'Back to website': 'العودة إلى الموقع' })
 
 export function PublicLocaleProvider({ children }) {
-  const [locale, setLocale] = useState(() => {
-    try { return localStorage.getItem(KEY) === 'ar' ? 'ar' : 'en' } catch { return 'en' }
-  })
+  const [locale, updateLocale] = useState(readPublicLocale)
+  const setLocale = locale => { if (['en', 'ar'].includes(locale)) { updateLocale(locale); persistInterfaceLanguage(locale) } }
+  useEffect(() => {
+    const sync = event => updateLocale(event.detail.locale)
+    window.addEventListener(LANGUAGE_EVENT, sync)
+    return () => window.removeEventListener(LANGUAGE_EVENT, sync)
+  }, [])
   useEffect(() => {
     try { localStorage.setItem(KEY, locale) } catch { /* Preference remains available for this session. */ }
-    document.documentElement.lang = locale
-    document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr'
-    return () => { document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr' }
+    applyInterfaceLocale(locale)
+    return () => applyInterfaceLocale(readPublicLocale())
   }, [locale])
   const value = useMemo(() => ({ locale, setLocale, direction: locale === 'ar' ? 'rtl' : 'ltr' }), [locale])
   return <PublicLocaleContext.Provider value={value}>{children}</PublicLocaleContext.Provider>
@@ -253,10 +258,11 @@ export function usePublicLocale() {
   if (!value) throw new Error('usePublicLocale must be used within PublicLocaleProvider.')
   return value
 }
+export function useOptionalPublicLocale() { return useContext(PublicLocaleContext) }
 
 export function translatePublicText(value) {
   if (typeof value !== 'string' || !value.trim()) return value
-  const translated = onboardingAr[value.trim()] || ar[value.trim()] || roadmapAr[value.trim()]
+  const translated = madaarAr[value.trim()] || onboardingAr[value.trim()] || ar[value.trim()] || roadmapAr[value.trim()]
   return translated ? value.replace(value.trim(), translated) : value
 }
 

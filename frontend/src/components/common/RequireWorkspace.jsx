@@ -40,7 +40,7 @@ export default function RequireWorkspace({ children }) {
     return (
       <main className="workspace-access" dir={direction}>
         <section className="workspace-access__card">
-          <span className="workspace-access__mark" aria-hidden="true">SA</span>
+          <span className="workspace-access__mark" aria-hidden="true">M</span>
           <h1>No workspace access</h1>
           <p>This account does not have an active administrator, teacher or examiner relationship with a workspace.</p>
           {user.is_candidate && <Link className="button button--secondary" to="/student">Open the Student Portal</Link>}
@@ -54,7 +54,7 @@ export default function RequireWorkspace({ children }) {
     return (
       <main className="workspace-access" dir={direction}>
         <section className="workspace-access__card workspace-access__card--wide">
-          <span className="workspace-access__mark" aria-hidden="true">SA</span>
+          <span className="workspace-access__mark" aria-hidden="true">M</span>
           <p className="workspace-access__eyebrow">Choose a workspace</p>
           <h1>Select where you want to work</h1>
           <p>Your access and available tools depend on your relationship with each workspace.</p>

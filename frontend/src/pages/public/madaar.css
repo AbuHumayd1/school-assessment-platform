@@ -1,0 +1,75 @@
+.madaar-home { color: var(--text); display: grid; gap: clamp(3.5rem, 7vw, 6rem); padding-bottom: 2rem; }
+.madaar-home section[id], .madaar-request { scroll-margin-top: 7rem; }
+.madaar-home h1, .madaar-home h2, .madaar-request h2 { color: var(--brand-strong); text-wrap: balance; letter-spacing: -.035em; }
+.madaar-home h2, .madaar-request h2 { font-size: clamp(1.8rem, 3vw, 2.7rem); line-height: 1.18; margin: .8rem 0 1rem; }
+.madaar-home p, .madaar-request p { line-height: 1.7; }
+.madaar-kicker { color: var(--brand); font-size: .82rem; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
+.madaar-hero { display: grid; grid-template-columns: 1.35fr 1fr; align-items: center; gap: 3rem; background: radial-gradient(at 85% 15%, var(--border), transparent 60%), var(--brand-soft); border-radius: 1.5rem; padding: clamp(1.5rem, 4vw, 4rem); }
+.madaar-hero h1 { font-size: clamp(2.8rem, 4.6vw, 4.8rem); line-height: 1.08; margin: 1rem 0; }
+.madaar-hero h1 span { color: var(--brand); }
+.madaar-product-line { font-size: clamp(1.05rem, 1.5vw, 1.25rem); font-weight: 750; color: var(--brand-strong); }
+.madaar-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.5rem; }
+.madaar-button { display: inline-flex; align-items: center; justify-content: center; text-align: center; padding: .85rem 1.2rem; border-radius: .65rem; background: #3B3BC9; border: 1px solid #3B3BC9; color: white; font-weight: 650; text-decoration: none; min-height: 44px; line-height: 1.4; }
+.madaar-button:hover { background: #2E2D7E; color: white; }
+.madaar-button:focus-visible { outline: 3px solid #6B74D6; outline-offset: 4px; }
+.madaar-button--outline { background: transparent; color: var(--brand-strong); border-color: #6B74D6; }
+.madaar-journey { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; box-shadow: 0 20px 50px #2e2d7e12; }
+.madaar-journey > p { font-weight: 700; color: var(--brand-strong); }
+.madaar-journey ol { list-style: none; margin: 1.5rem 0; padding: 0; display: grid; gap: 1rem; }
+.madaar-journey li { display: flex; align-items: center; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--brand-soft); }
+.madaar-journey li b { color: #6B74D6; font-size: .85rem; }
+.madaar-journey > div { font-size: .85rem; color: var(--brand-strong); }
+.madaar-managed, .madaar-workspace { display: grid; grid-template-columns: 1.2fr 1fr; align-items: center; gap: 3rem; padding: clamp(1.5rem, 4vw, 3rem); border-radius: 1.2rem; }
+.madaar-managed { background: var(--brand-solid); color: var(--brand-soft); }
+.madaar-managed h2, .madaar-managed .madaar-kicker { color: white; }
+.madaar-managed .madaar-button { background: white; color: #2E2D7E; }
+.madaar-managed ul { list-style: none; padding: 0; display: grid; gap: 1.25rem; }
+.madaar-managed li { display: flex; gap: .8rem; align-items: baseline; }
+.madaar-managed li span { color: #b5efce; }
+.madaar-status { display: inline-block; border-radius: 2rem; padding: .4rem .8rem; background: #dcf7e8; color: #155e3c; text-transform: uppercase; font-size: .72rem; font-weight: 800; letter-spacing: .06em; }
+.madaar-status--pilot { color: var(--brand-strong); background: var(--border); }
+.madaar-section-heading { max-width: 45rem; margin-bottom: 1.5rem; }
+.madaar-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.madaar-steps article { padding: 1.5rem; border-top: 3px solid #6B74D6; background: var(--brand-soft); border-radius: .5rem; }
+.madaar-steps b { color: var(--brand); font-size: .85rem; }
+.madaar-steps h3 { color: var(--brand-strong); font-size: 1.1rem; }
+.madaar-workspace { background: var(--surface); border: 1px solid var(--border); }
+.madaar-workspace__tiles { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.madaar-workspace__tiles span { padding: 1.2rem; background: var(--brand-soft); border-radius: .6rem; font-weight: 650; color: var(--brand-strong); }
+.madaar-capabilities { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.madaar-capabilities article { padding: 1.5rem; border: 1px solid var(--border); border-radius: .75rem; }
+.madaar-capabilities h3 { margin-top: 0; color: var(--brand-strong); font-size: 1.1rem; }
+.madaar-audiences { text-align: center; }
+.madaar-audiences ul { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; padding: 0; }
+.madaar-audiences li { background: var(--brand-soft); padding: .75rem 1rem; border-radius: 2rem; }
+.madaar-request { display: grid; grid-template-columns: 1.2fr 1fr; gap: 3rem; align-items: center; padding: clamp(1.5rem, 4vw, 3rem); background: var(--brand-soft); border: 1px solid var(--border); border-radius: 1rem; }
+.madaar-request__action p { color: var(--text-muted); font-size: .95rem; }
+.madaar-existing { text-align: center; }
+.madaar-vision { padding-block: clamp(2rem, 4vw, 4rem); border-block: 1px solid var(--border); }
+.madaar-vision__intro { max-width: 54rem; }
+.madaar-vision__intro h2 { font-size: clamp(2rem, 3.6vw, 3.5rem); }
+.madaar-vision__intro h2 span { color: var(--brand); }
+.madaar-vision__intro > p:not(.madaar-kicker) { max-width: 46rem; color: var(--text-muted); }
+.madaar-vision__direction { margin-block: 3rem 2rem; max-width: 48rem; }
+.madaar-vision h3, .madaar-vision h4 { color: var(--brand-strong); }
+.madaar-vision__loop { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; padding: 0; margin: 0; }
+.madaar-vision__area { position: relative; padding: 1.5rem 1rem 1rem; border-block-start: 2px solid var(--border); }
+.madaar-vision__area::before { content: ''; position: absolute; inset-block-start: -.35rem; inset-inline-start: 1rem; width: .6rem; height: .6rem; border-radius: 50%; background: var(--gold); }
+.madaar-vision__area--current { border-color: var(--brand); background: var(--brand-soft); }
+.madaar-vision__number { color: var(--text-muted); font-size: .75rem; }
+.madaar-vision__area h4 { font-size: 1.4rem; margin-block: .5rem; }
+.madaar-vision__status { color: var(--brand); font-size: .75rem; font-weight: 700; }
+.madaar-vision__area > p:not(.madaar-vision__status) { font-size: .9rem; color: var(--text-muted); }
+.madaar-vision__note { border-block-start: 1px solid var(--border); padding-block-start: .75rem; }
+.madaar-vision__foundation { display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; margin-block-start: 2.5rem; padding-block-start: 2rem; border-block-start: 1px solid var(--border); }
+.madaar-vision__foundation p:not(.madaar-kicker) { color: var(--text-muted); font-size: .95rem; }
+@media (max-width: 1000px) {
+  .madaar-vision__loop { grid-template-columns: 1fr; }
+  .madaar-vision__area { border-block-start: 0; border-inline-start: 2px solid var(--border); padding: 0 1.5rem 1.5rem; }
+  .madaar-vision__area--current { border-inline-start-color: var(--brand); padding-block: 1rem; }
+  .madaar-vision__area::before { inset-inline-start: -.35rem; inset-block-start: .5rem; }
+  .madaar-vision__area--current::before { inset-block-start: 1.5rem; }
+  .madaar-vision__foundation { grid-template-columns: 1fr; gap: .5rem; }
+}
+@media (max-width: 900px) { .madaar-hero, .madaar-managed, .madaar-workspace, .madaar-request { grid-template-columns: 1fr; gap: 1.5rem; } .madaar-steps, .madaar-capabilities { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 540px) { .madaar-steps, .madaar-capabilities { grid-template-columns: 1fr; } .madaar-actions { flex-direction: column; } .madaar-hero h1 { font-size: 2.65rem; } .madaar-workspace__tiles span { padding: .8rem; font-size: .9rem; } }

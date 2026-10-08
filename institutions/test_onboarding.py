@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import User
@@ -11,6 +11,7 @@ from tenants.models import InstitutionMembership
 from .models import Institution
 
 
+@override_settings(MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED=True)
 class WorkspaceOnboardingTests(TestCase):
     url = "/api/v1/institutions/create-workspace/"
 
@@ -24,6 +25,20 @@ class WorkspaceOnboardingTests(TestCase):
 
     def create(self, **changes):
         return self.client.post(self.url, {**self.fields, **changes}, format="json", HTTP_X_CSRFTOKEN=self.token)
+
+    @override_settings(MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED=False)
+    def test_disabled_creation_has_no_side_effects_and_operator_path_remains(self):
+        response = self.create()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "public_workspace_creation_disabled")
+        self.assertFalse(Institution.objects.exists())
+        self.assertFalse(InstitutionMembership.objects.exists())
+        self.assertFalse(AuditEvent.objects.exists())
+        operator = User.objects.create_superuser("operator@example.com", "Operator-password-729!")
+        self.client.force_authenticate(operator)
+        response = self.client.post("/api/v1/institutions/", {"name": "Operator provisioned", "slug": "operator-provisioned", "institution_type": "school"}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Institution.objects.count(), 1)
 
     def test_requires_authentication_and_session_csrf(self):
         self.assertEqual(APIClient().post(self.url, self.fields, format="json").status_code, 403)

@@ -6,6 +6,7 @@ import { apiFetch, staffApiFetch } from '../../services/api.js'
 import AccountMenu from '../../components/common/AccountMenu.jsx'
 import LanguageModeControl from '../../components/common/LanguageModeControl.jsx'
 import LogoWordmark from '../../components/common/LogoWordmark.jsx'
+import ThemeSwitch from '../../components/common/ThemeSwitch.jsx'
 import Button from '../../components/common/Button.jsx'
 import { useOwnerRead, ReadState, ExamPagination } from '../staff/exam-ui.jsx'
 import { usePlatformCopy } from './platform-copy.js'
@@ -41,7 +42,7 @@ export function PlatformLayout() {
   const { t, direction } = usePlatformCopy()
   const { clearSelection } = useWorkspace()
   useEffect(() => { clearSelection() }, [clearSelection])
-  return <div className="platform-board" dir={direction}><header className="platform-header"><LogoWordmark to="/platform" /><span>{t('Platform Administrator')}</span><div className="platform-header-actions"><LanguageModeControl /><AccountMenu /></div></header><PlatformNavigation t={t} /><main className="platform-content"><Outlet /></main></div>
+  return <div className="platform-board" dir={direction}><header className="platform-header"><LogoWordmark to="/platform" /><span>{t('Platform Administrator')}</span><div className="platform-header-actions"><ThemeSwitch /><LanguageModeControl /><AccountMenu /></div></header><PlatformNavigation t={t} /><main className="platform-content"><Outlet /></main></div>
 }
 
 export function CompactSummary({ data, t, fields }) {

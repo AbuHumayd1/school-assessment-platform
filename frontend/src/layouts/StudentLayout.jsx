@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import ThemeSwitch from '../components/common/ThemeSwitch.jsx'
 import Drawer from '../components/common/Drawer.jsx'
 import Icon from '../components/common/Icon.jsx'
 import LogoWordmark from '../components/common/LogoWordmark.jsx'
@@ -34,7 +35,7 @@ export default function StudentLayout() {
     <div className={`student-layout${examMode ? ' student-layout--exam' : ''}`} dir={direction}>
       {!examMode && <Drawer open={menuOpen} onClose={closeMenu} title="Student menu" className="student-mobile-drawer">
         <StudentNavigation mobile onNavigate={closeMenu} />
-        <LanguageModeControl />
+        <ThemeSwitch /><LanguageModeControl />
       </Drawer>}
 
       <div className="student-workspace">
@@ -42,7 +43,7 @@ export default function StudentLayout() {
           <LogoWordmark to="/student" />
           <StudentNavigation />
           <div className="student-topbar__actions">
-            <LanguageModeControl />
+            <ThemeSwitch /><LanguageModeControl />
             <AccountMenu />
             <button className="icon-button student-menu-toggle" type="button" aria-label="Open student menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
           </div>

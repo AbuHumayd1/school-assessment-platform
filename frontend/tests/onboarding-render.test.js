@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { createServer } from 'vite'
 import { loadSessionUser } from '../src/services/session.js'
 
-test('anonymous auth/me 401 renders the real setup registration form without a fatal error', async () => {
+test('anonymous setup offers pilot enquiry without registration; authenticated setup retains real fields', async () => {
   const server = await createServer({
     server: { middlewareMode: true },
     appType: 'custom',
@@ -35,9 +35,9 @@ test('anonymous auth/me 401 renders the real setup registration form without a f
     const { PublicLocaleProvider } = await server.ssrLoadModule('/src/context/PublicLocaleContext.jsx')
     const html = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: ['/setup'] },
       React.createElement(PublicLocaleProvider, null, React.createElement(OnboardingPage))))
-    assert.match(html, /Create your account/)
-    assert.match(html, /name="password_confirmation"/)
-    assert.match(html, /<form/)
+    assert.match(html, /Institution Workspace Pilot/)
+    assert.match(html, /contact\?interest=institution-pilot/)
+    assert.doesNotMatch(html, /name="password_confirmation"|<form/)
     assert.doesNotMatch(html, /Something went wrong/)
     for (const account of [
       { id: 7, email: 'admin@example.com' },
@@ -47,8 +47,23 @@ test('anonymous auth/me 401 renders the real setup registration form without a f
       const workspaceHtml = renderToStaticMarkup(React.createElement(MemoryRouter, null,
         React.createElement(PublicLocaleProvider, null, React.createElement(OnboardingPage))))
       assert.match(workspaceHtml, /name="institution_type"/)
+      assert.match(workspaceHtml, /value="madrasah"/)
+      assert.match(workspaceHtml, /name="name"/)
+      assert.match(workspaceHtml, /name="email"/)
+      assert.doesNotMatch(workspaceHtml, /backend|setup preview|TODO|mock/i)
       assert.doesNotMatch(workspaceHtml, /name="password_confirmation"/)
     }
+    const previousStorage = globalThis.localStorage
+    try {
+      for (const locale of ['en', 'ar']) for (const theme of ['light', 'dark']) {
+        globalThis.localStorage = { getItem: key => key === 'madaar.theme' ? theme : locale }
+        globalThis.__onboardingAuthFixture = { user: { id: 7, email: 'Original@Example.com' }, loading: false, error: null }
+        const localized = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(PublicLocaleProvider, null, React.createElement(OnboardingPage))))
+        assert.ok(localized.includes(locale === 'ar' ? 'إعداد مؤسستك' : 'Set up your institution'))
+        assert.ok(localized.includes(locale === 'ar' ? 'dir="rtl"' : 'dir="ltr"'))
+        assert.match(localized, /Original@Example.com/)
+      }
+    } finally { if (previousStorage === undefined) delete globalThis.localStorage; else globalThis.localStorage = previousStorage }
     globalThis.__onboardingAuthFixture = { user: null, loading: false, error: new Error('Network failure') }
     const failureHtml = renderToStaticMarkup(React.createElement(MemoryRouter, null,
       React.createElement(PublicLocaleProvider, null, React.createElement(OnboardingPage))))

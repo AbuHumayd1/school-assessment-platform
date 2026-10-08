@@ -1,4 +1,5 @@
 from django.contrib.auth import authenticate, login, logout
+from django.conf import settings
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
@@ -79,6 +80,8 @@ class RegisterView(APIView):
     throttle_scope = "auth_register"
 
     def post(self, request):
+        if not settings.MADAAR_PUBLIC_REGISTRATION_ENABLED:
+            return Response({"detail": "Public registration is not currently available.", "code": "public_registration_disabled"}, status=403)
         if request.user.is_authenticated:
             return Response({"detail": "Sign out before creating another account."}, status=400)
         serializer = RegistrationSerializer(data=request.data)

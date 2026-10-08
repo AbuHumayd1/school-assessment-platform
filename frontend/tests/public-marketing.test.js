@@ -63,12 +63,12 @@ test('real Home, Features, How It Works, Pricing, About and Contact markup suppl
     const pages = await server.ssrLoadModule('/src/pages/public/PublicPages.jsx')
     const { PublicLocaleProvider } = await server.ssrLoadModule('/src/context/PublicLocaleContext.jsx')
     const cases = [
-      [Home, ['landing-section__heading', 'landing-card', 'landing-step', 'landing-plan', 'landing-vision', 'landing-final-cta'], 'landing-grid'],
+      [Home, ['landing-section__heading', 'landing-card', 'landing-step', 'madaar-managed', 'madaar-workspace', 'madaar-request'], 'landing-grid'],
       [pages.FeaturesPage, ['features-section-heading', 'features-detail', 'feature-next-card', 'feature-roadmap-card', 'features-audience-card', 'features-cta'], 'feature-roadmap-grid'],
       [pages.HowItWorksPage, ['workflow-overview__heading', 'workflow-overview__step', 'workflow-detail', 'workflow-cta'], 'workflow-overview__grid'],
-      [pages.PricingPage, ['pricing-card', 'pricing-capacity', 'pricing-cta'], 'pricing-grid'],
+      [pages.PricingPage, ['madaar-request'], null],
       [pages.AboutPage, ['about-vision', 'about-mission', 'about-contact-card', 'about-metric', 'about-trusted', 'about-closing'], 'about-future-grid'],
-      [pages.ContactPage, ['contact-copy', 'public-form'], null],
+      [pages.ContactPage, ['madaar-request'], null],
     ]
     for (const [Page, expected, groupClass] of cases) {
       const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(PublicLocaleProvider, null, React.createElement(Page))))

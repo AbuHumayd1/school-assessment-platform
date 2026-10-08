@@ -82,7 +82,7 @@ def _validate_assessment_for_candidate(
         if window == "ended":
             raise PermissionDenied(AVAILABILITY_MESSAGES["ended"], code="ended")
     if access_mode == "quick":
-        if not assessment.uses_quick_delivery:
+        if not assessment.uses_quick_delivery or not assessment.candidate_assignments.filter(candidate_id=candidate.pk).exists():
             raise PermissionDenied(AVAILABILITY_MESSAGES["not_eligible"], code="not_eligible")
     else:
         from assessments.eligibility import portal_candidate_is_assigned

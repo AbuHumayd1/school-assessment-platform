@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from candidates.models import Candidate
@@ -11,6 +11,7 @@ from tenants.models import InstitutionMembership
 from .models import User
 
 
+@override_settings(MADAAR_PUBLIC_REGISTRATION_ENABLED=True)
 class RegistrationTests(TestCase):
     url = "/api/v1/auth/register/"
 
@@ -23,6 +24,15 @@ class RegistrationTests(TestCase):
 
     def register(self, **changes):
         return self.client.post(self.url, {**self.fields, **changes}, format="json", HTTP_X_CSRFTOKEN=self.token)
+
+    @override_settings(MADAAR_PUBLIC_REGISTRATION_ENABLED=False)
+    def test_disabled_registration_has_no_side_effects(self):
+        response = self.register()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "public_registration_disabled")
+        self.assertFalse(User.objects.exists())
+        self.assertFalse(Institution.objects.exists())
+        self.assertFalse(InstitutionMembership.objects.exists())
 
     def test_registration_creates_safe_normalized_user_and_live_session_only(self):
         response = self.register()

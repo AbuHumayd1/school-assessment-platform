@@ -1,5 +1,6 @@
 from institutions.workspace_access import WorkspaceAccessMixin
 from django.db import transaction
+from django.conf import settings
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
@@ -30,6 +31,8 @@ class InstitutionViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=["post"], url_path="create-workspace",
             permission_classes=[IsAuthenticated], throttle_classes=[ScopedRateThrottle])
     def create_workspace(self, request):
+        if not settings.MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED:
+            return Response({"detail": "Workspace creation is not currently available. Contact Madaar to discuss institution access.", "code": "public_workspace_creation_disabled"}, status=403)
         serializer = WorkspaceCreationSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         institution = serializer.save()

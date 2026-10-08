@@ -1,3 +1,5 @@
+import { madaarAr } from '../context/madaarTranslations.js'
+
 export const quickExamAr = {
   'Your score': 'درجتك',
   'Exam submitted successfully': 'تم تسليم الاختبار بنجاح',
@@ -78,6 +80,7 @@ export function quickExamTranslate(locale, text) {
   if (locale !== 'ar') return text
   const value = String(text).trim()
   if (quickExamAr[value]) return quickExamAr[value]
+  if (madaarAr[value]) return madaarAr[value]
   const patterns = [
     [/^Question (\d+) of (\d+)$/, (a, b) => `السؤال ${a} من ${b}`],
     [/^Question (\d+)$/, a => `السؤال ${a}`], [/^Attempt (\d+)$/, a => `المحاولة ${a}`],

@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "unsafe-development-key")
+MADAAR_PUBLIC_REGISTRATION_ENABLED = os.getenv("MADAAR_PUBLIC_REGISTRATION_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
+MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED = os.getenv("MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 DEBUG = False
 ALLOWED_HOSTS = []
 INSTALLED_APPS = [
