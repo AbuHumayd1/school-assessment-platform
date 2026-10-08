@@ -18,8 +18,8 @@ const render = (component, props) => renderToStaticMarkup(React.createElement(Me
 const t = text => text
 const client = { id: 7, name: 'Real Client', workspace_mode: 'managed_exam', is_active: true, can_release_candidate_results: false }
 
-test('platform navigation contains exactly four operational entries', () => {
-  assert.deepEqual(ui.platformNavigation.map(([, label]) => label), ['Overview', 'Clients', 'Exams', 'Reports'])
+test('platform navigation includes the separate content libraries', () => {
+  assert.deepEqual(ui.platformNavigation.map(([, label]) => label), ['Overview', 'Clients', 'Exams', 'Reports', 'Platform Library', 'Institution Banks'])
   const html = render(ui.PlatformNavigation, { t })
   for (const path of ['/platform', '/platform/clients', '/platform/exams', '/platform/reports']) assert.ok(html.includes(`href="${path}"`))
   assert.doesNotMatch(html, /Billing|Analytics|Subscriptions/)

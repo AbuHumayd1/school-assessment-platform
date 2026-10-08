@@ -478,7 +478,8 @@ class DocxConfirmView(APIView):
 
 
 def media_representation(question):
-    return [{'id':str(m.pk), 'url':f'/api/v1/questions/media/{m.pk}/?institution={question.institution_id}',
+    selector = f'?institution={question.institution_id}' if question.institution_id else ''
+    return [{'id':str(m.pk), 'url':f'/api/v1/questions/media/{m.pk}/{selector}',
              'alt_text':m.alt_text or 'Question illustration', 'caption':m.caption, 'order':m.order} for m in question.media.all()]
 
 
@@ -487,6 +488,13 @@ class QuestionMediaView(APIView):
 
     def get(self, request, media_id):
         asset = get_object_or_404(QuestionMedia.objects.select_related('question','import_session'), pk=media_id)
+        if asset.question_id and asset.question.owner_scope == 'platform':
+            from institutions.permissions import is_platform_administrator
+            if not is_platform_administrator(request.user):
+                raise NotFound()
+            if asset.source_metadata.get('status') != 'converted':
+                raise NotFound()
+            return private_response(FileResponse(asset.file.open('rb'), content_type='image/png'))
         if asset.import_session_id:
             enforce_workspace_mode(request, "questions")
             session = session_for(request, asset.import_session_id)

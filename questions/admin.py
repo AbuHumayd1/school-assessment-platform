@@ -12,7 +12,7 @@ class TopicAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("name", "subject", "parent", "institution", "is_active")
     list_filter = ("institution", "subject", "is_active")
     search_fields = ("name", "description", "subject__name")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ('owner_scope', "created_at", "updated_at")
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         institution_ids = admin_institution_ids(request.user, self.access_roles)
@@ -46,7 +46,7 @@ class QuestionAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
     list_display = ("id", "subject", "question_type", "difficulty", "status", "created_by", "created_at")
     list_filter = ("institution", "subject", "question_type", "difficulty", "status")
     search_fields = ("text", "source", "learning_objective", "created_by__email")
-    readonly_fields = ("status", "created_by", "reviewed_by", "created_at", "updated_at", 'revision_family', 'revision_number', 'content_locked', 'available_for_new_assessments')
+    readonly_fields = ('owner_scope', "status", "created_by", "reviewed_by", "created_at", "updated_at", 'revision_family', 'revision_number', 'content_locked', 'available_for_new_assessments')
     inlines = (QuestionOptionInline,)
 
     def get_readonly_fields(self, request, obj=None):

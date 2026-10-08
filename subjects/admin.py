@@ -4,6 +4,7 @@ from tenants.admin import TenantScopedAdminMixin, admin_institution_ids
 from .models import Subject
 @admin.register(Subject)
 class SubjectAdmin(TenantScopedAdminMixin, admin.ModelAdmin):
+    readonly_fields = ('owner_scope',)
     list_display = ("name", "code", "institution", "is_active")
     list_filter = ("institution", "is_active")
     search_fields = ("name", "code")

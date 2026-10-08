@@ -16,8 +16,9 @@ class AuditEvent(models.Model):
         INSTITUTION_PROFILE_UPDATED = "institution_profile_updated", "Institution profile updated"
         MEMBERSHIP_CHANGED = "membership_changed", "Institution membership changed"
         QUESTION_IMPORT = "question_import", "Question bank CSV import"
+        PLATFORM_CONTENT_CHANGED = 'platform_content_changed', 'Platform Library content changed'
 
-    institution = models.ForeignKey("institutions.Institution", on_delete=models.PROTECT, related_name="audit_events")
+    institution = models.ForeignKey("institutions.Institution", null=True, blank=True, on_delete=models.PROTECT, related_name="audit_events")
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="audit_events")
     event_type = models.CharField(max_length=32, choices=Type.choices)
     resource_type = models.CharField(max_length=100)

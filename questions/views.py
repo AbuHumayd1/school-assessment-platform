@@ -25,10 +25,7 @@ class TenantQuestionBankMixin:
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        if self.action == "create":
-            context["institution"] = self.get_write_institution()
-        elif self.action in {"update", "partial_update"}:
-            context["institution"] = self.get_object().institution
+        context["institution"] = self.get_write_institution()
         return context
 
 
@@ -38,7 +35,9 @@ class TopicViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Topic.objects.filter(
+            owner_scope='institution',
             institution_id__in=institution_ids_for_question_bank(self.request.user),
+            institution=self.get_write_institution(),
             institution__is_active=True,
         ).select_related("institution", "subject", "parent")
         if self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution"):
@@ -78,12 +77,17 @@ class QuestionViewSet(TenantQuestionBankMixin, viewsets.ModelViewSet):
         permission_class = permission_by_action.get(self.action, CanAccessQuestionBank)
         return [permission_class()]
 
-    def get_queryset(self):
-        queryset = Question.objects.filter(
+    def get_content_queryset(self):
+        return Question.objects.filter(
+            owner_scope='institution',
             institution_id__in=institution_ids_for_question_bank(self.request.user),
+            institution=self.get_write_institution(),
             institution__is_active=True,
-        ).select_related("institution", "subject", "topic", "created_by", "reviewed_by").prefetch_related("options", "media")
-        if self.request.headers.get('X-Institution-ID') or self.request.query_params.get('institution'):
+        )
+
+    def get_queryset(self):
+        queryset = self.get_content_queryset().select_related("institution", "subject", "topic", "created_by", "reviewed_by").prefetch_related("options", "media")
+        if not getattr(self, 'platform_library', False) and (self.request.headers.get('X-Institution-ID') or self.request.query_params.get('institution')):
             queryset = queryset.filter(institution=self.get_write_institution())
         for field in ("subject", "topic"):
             value = self.request.query_params.get(field)

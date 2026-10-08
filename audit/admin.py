@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.contrib.admin import SimpleListFilter
+from django.db.models import Q
 
 from .models import AuditEvent
 
@@ -43,7 +44,7 @@ class AuditEventAdmin(admin.ModelAdmin):
         if request.user.is_superuser or request.user.institution_memberships.filter(
             is_active=True, institution__is_active=True, role="platform_admin",
         ).exists():
-            return queryset.filter(institution__is_active=True)
+            return queryset.filter(Q(institution__is_active=True) | Q(institution__isnull=True))
         institution_ids = request.user.institution_memberships.filter(
             is_active=True, institution__is_active=True,
             role__in=("institution_admin", "examiner"),

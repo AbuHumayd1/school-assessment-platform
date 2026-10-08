@@ -11,9 +11,8 @@ class SubjectViewSet(WorkspaceAccessMixin, viewsets.ModelViewSet):
     serializer_class = SubjectSerializer
     permission_classes = [CanManageSubjects]
     def get_queryset(self):
-        queryset = Subject.objects.filter(institution_id__in=institutions_for_user(self.request.user), institution__is_active=True)
-        if self.request.headers.get("X-Institution-ID") or self.request.query_params.get("institution"):
-            queryset = queryset.filter(institution=resolve_institution_context(self.request, {"institution_admin", "teacher", "examiner"}))
+        queryset = Subject.objects.filter(owner_scope='institution', institution_id__in=institutions_for_user(self.request.user), institution__is_active=True)
+        queryset = queryset.filter(institution=resolve_institution_context(self.request, {"institution_admin", "teacher", "examiner"}))
         return queryset
     def perform_create(self, serializer):
         institution_id = self.request.data.get("institution")

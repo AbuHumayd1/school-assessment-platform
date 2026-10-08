@@ -32,7 +32,7 @@ export function RequirePlatform({ children }) {
   return workspace.isPlatformAdmin ? children : <Navigate to="/app" replace />
 }
 
-export const platformNavigation = [['/platform', 'Overview'], ['/platform/clients', 'Clients'], ['/platform/exams', 'Exams'], ['/platform/reports', 'Reports']]
+export const platformNavigation = [['/platform', 'Overview'], ['/platform/clients', 'Clients'], ['/platform/exams', 'Exams'], ['/platform/reports', 'Reports'], ['/platform/library', 'Platform Library'], ['/platform/institution-banks', 'Institution Banks']]
 export function PlatformNavigation({ t }) {
   return <nav className="platform-nav" aria-label={t('Platform Administrator')}>{platformNavigation.map(([to, label]) => <NavLink key={to} to={to} end={to === '/platform'}>{t(label)}</NavLink>)}</nav>
 }

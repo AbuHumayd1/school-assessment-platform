@@ -63,13 +63,17 @@ class PhaseFiveSecurityTests(APITestCase):
     def make_question(institution, subject, creator, text):
         question = Question.objects.create(
             institution=institution, subject=subject, question_type=Question.Type.MULTIPLE_CHOICE,
-            text=text, explanation="Hidden explanation", source="Internal source", status=Question.Status.APPROVED,
+            text=text, explanation="Hidden explanation", source="Internal source", status=Question.Status.DRAFT,
             created_by=creator,
         )
         options = [
             QuestionOption.objects.create(question=question, text="First option", order=1, is_correct=True),
             QuestionOption.objects.create(question=question, text="Second option", order=2, is_correct=False),
         ]
+        question.status = Question.Status.REVIEW
+        question.save(update_fields=['status'])
+        question.status = Question.Status.APPROVED
+        question.save(update_fields=['status'])
         return question, options
 
     @staticmethod
@@ -77,12 +81,15 @@ class PhaseFiveSecurityTests(APITestCase):
         assessment = Assessment.objects.create(
             institution=institution, title="Security assessment", assessment_type=Assessment.Type.TEST,
             subject=subject, group=group, duration_minutes=30, pass_mark=Decimal("1.00"), attempt_limit=3,
-            status=Assessment.Status.SCHEDULED, start_at=now - timedelta(hours=1), end_at=now + timedelta(hours=1),
+            status=Assessment.Status.DRAFT, start_at=now - timedelta(hours=1), end_at=now + timedelta(hours=1),
             candidate_access=Assessment.CandidateAccess.ASSIGNED_GROUP,
             result_visibility=Assessment.ResultVisibility.AFTER_SUBMISSION,
             result_release_mode=Assessment.ResultReleaseMode.APPROVAL_REQUIRED, created_by=creator,
         )
         AssessmentQuestion.objects.create(assessment=assessment, question=question, order=1, marks=Decimal("1.00"))
+        for state in (Assessment.Status.REVIEW, Assessment.Status.APPROVED, Assessment.Status.SCHEDULED):
+            assessment.status = state
+            assessment.save(update_fields=['status'])
         return assessment
 
     def mark_result(self, attempt=None):

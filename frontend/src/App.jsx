@@ -24,6 +24,7 @@ import PlaceholderPage from './pages/PlaceholderPage.jsx'
 import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
 import ExamsPage from './pages/staff/ExamsPage.jsx'
 import QuestionsPage from './pages/staff/QuestionsPage.jsx'
+import PlatformLibrary, { InstitutionBanks } from './pages/platform/PlatformLibrary.jsx'
 import ExamDetailPage from './pages/staff/ExamDetailPage.jsx'
 import ExamFormPage from './pages/staff/ExamFormPage.jsx'
 import CandidatesPage from './pages/staff/CandidatesPage.jsx'
@@ -145,6 +146,8 @@ export default function App() {
           <Route path="clients/:clientId" element={<ClientDetailPage />} />
           <Route path="exams" element={<PlatformExamsPage />} />
           <Route path="reports" element={<ClientsPage reports />} />
+          <Route path="library" element={<PlatformLibrary />} />
+          <Route path="institution-banks" element={<InstitutionBanks />} />
           <Route path="*" element={<Navigate to="/platform" replace />} />
         </Route>
 

@@ -7,9 +7,13 @@ from candidates.views import CandidateViewSet
 from groups.views import GroupViewSet
 from subjects.views import SubjectViewSet
 from questions.views import TopicViewSet, QuestionViewSet
+from questions.platform_library import PlatformSubjectViewSet, PlatformTopicViewSet, PlatformQuestionViewSet
 from tenants.views import InstitutionMembershipViewSet, InstitutionDashboardView
 
 router = DefaultRouter()
+router.register('platform/library/subjects', PlatformSubjectViewSet, basename='platform-library-subject')
+router.register('platform/library/topics', PlatformTopicViewSet, basename='platform-library-topic')
+router.register('platform/library/questions', PlatformQuestionViewSet, basename='platform-library-question')
 router.register("platform/clients", ClientViewSet, basename="platform-client")
 router.register("institutions", InstitutionViewSet, basename="institution")
 router.register("memberships", InstitutionMembershipViewSet, basename="membership")

@@ -15,11 +15,18 @@ from .tenancy import WRITE_ROLES, has_question_role
 
 
 def create_question_revision(question_id, *, actor, institution):
-    if not has_question_role(actor, institution.pk, WRITE_ROLES):
-        raise PermissionDenied()
-    enforce_workspace_mode(SimpleNamespace(user=actor, headers={'X-Institution-ID': str(institution.pk)},
-        query_params={}, method='POST'), 'questions')
-    identity = Question.objects.filter(pk=question_id, institution=institution).values('revision_family').first()
+    if institution is None:
+        from institutions.permissions import is_platform_administrator
+        if not is_platform_administrator(actor):
+            raise PermissionDenied()
+        ownership = {'owner_scope': 'platform', 'institution__isnull': True}
+    else:
+        if not has_question_role(actor, institution.pk, WRITE_ROLES):
+            raise PermissionDenied()
+        enforce_workspace_mode(SimpleNamespace(user=actor, headers={'X-Institution-ID': str(institution.pk)},
+            query_params={}, method='POST'), 'questions')
+        ownership = {'owner_scope': 'institution', 'institution': institution}
+    identity = Question.objects.filter(pk=question_id, **ownership).values('revision_family').first()
     if identity is None:
         raise NotFound()
     created_files = []
@@ -28,7 +35,7 @@ def create_question_revision(question_id, *, actor, institution):
             # Every creator serializes on the permanent first revision, including when
             # creating from an older revision after newer drafts already exist.
             Question.objects.select_for_update().get(revision_family=identity['revision_family'], revision_number=1)
-            source = Question.objects.select_for_update().get(pk=question_id, institution=institution)
+            source = Question.objects.select_for_update().get(pk=question_id, **ownership)
             if not source.content_locked:
                 raise ValidationError('Create a revision from an approved, locked question.')
             number = Question.objects.filter(revision_family=source.revision_family).aggregate(n=Max('revision_number'))['n'] + 1

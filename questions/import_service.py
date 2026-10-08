@@ -117,6 +117,8 @@ def _build_question_payload(row, subject, topic, row_errors):
 
 def import_questions_csv(upload, *, institution, actor):
     """Validate a complete CSV before writing any questions; successful writes are atomic."""
+    if institution is None:
+        raise serializers.ValidationError({'institution': 'Institution imports require a selected workspace.'})
     if upload is None:
         summary = _summary(0, [_file_error("Upload a CSV file in the 'file' field.")])
         _audit_import(institution=institution, actor=actor, summary=summary, outcome="rejected")
@@ -171,10 +173,10 @@ def import_questions_csv(upload, *, institution, actor):
         return summary
 
     subjects_by_code = {}
-    for subject in Subject.objects.filter(institution=institution).only("id", "code", "institution_id"):
+    for subject in Subject.objects.filter(owner_scope='institution', institution=institution).only("id", "code", "institution_id"):
         subjects_by_code.setdefault(subject.code.casefold(), []).append(subject)
     topics_by_subject_name = {}
-    for topic in Topic.objects.filter(institution=institution).only("id", "institution_id", "subject_id", "name"):
+    for topic in Topic.objects.filter(owner_scope='institution', institution=institution).only("id", "institution_id", "subject_id", "name"):
         topics_by_subject_name.setdefault((topic.subject_id, topic.name.casefold()), []).append(topic)
     subjects_by_id = {subject.pk: subject for matches in subjects_by_code.values() for subject in matches}
     topics_by_id = {topic.pk: topic for matches in topics_by_subject_name.values() for topic in matches}

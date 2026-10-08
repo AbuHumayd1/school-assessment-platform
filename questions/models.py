@@ -7,10 +7,11 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 from .integrity_querysets import IntegrityQuerySet
+from subjects.ownership import OwnedContent, OwnerScope, ownership_constraint, validate_content_owner
 
 
-class Topic(models.Model):
-    institution = models.ForeignKey("institutions.Institution", on_delete=models.CASCADE, related_name="topics")
+class Topic(OwnedContent):
+    institution = models.ForeignKey("institutions.Institution", null=True, blank=True, on_delete=models.CASCADE, related_name="topics")
     subject = models.ForeignKey("subjects.Subject", on_delete=models.CASCADE, related_name="topics")
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="children")
     name = models.CharField(max_length=160)
@@ -21,10 +22,15 @@ class Topic(models.Model):
 
     class Meta:
         ordering = ("subject__name", "name")
-        constraints = [models.UniqueConstraint(fields=("institution", "subject", "name"), name="unique_topic_name_per_subject")]
+        constraints = [models.UniqueConstraint(fields=("institution", "subject", "name"), name="unique_topic_name_per_subject"), ownership_constraint('topic_owner_shape'), models.UniqueConstraint(fields=('subject', 'name'), name='unique_topic_name_per_owner_subject')]
 
     def clean(self):
+        validate_content_owner(self)
         errors = {}
+        if self.pk:
+            original = type(self).objects.get(pk=self.pk)
+            if original.subject_id != self.subject_id and (self.questions.exists() or self.children.exists()):
+                errors['subject'] = 'A topic with questions or child topics cannot change subject.'
         if self.institution_id and self.subject_id and self.subject.institution_id != self.institution_id:
             errors["subject"] = "The subject must belong to the same institution as the topic."
         if self.parent_id:
@@ -46,7 +52,7 @@ class Topic(models.Model):
 
 
 class Question(models.Model):
-    CONTENT_FIELDS = ('institution_id', 'subject_id', 'topic_id', 'question_type', 'text',
+    CONTENT_FIELDS = ('owner_scope', 'institution_id', 'subject_id', 'topic_id', 'question_type', 'text',
         'explanation', 'difficulty', 'marks', 'source', 'source_metadata', 'source_year', 'learning_objective',
         'created_by_id', 'reviewed_by_id')
     objects = IntegrityQuerySet.as_manager()
@@ -66,7 +72,8 @@ class Question(models.Model):
         APPROVED = "approved", "Approved"
         ARCHIVED = "archived", "Archived"
 
-    institution = models.ForeignKey("institutions.Institution", on_delete=models.PROTECT, related_name="questions")
+    owner_scope = models.CharField(max_length=16, choices=OwnerScope.choices, default=OwnerScope.INSTITUTION)
+    institution = models.ForeignKey("institutions.Institution", null=True, blank=True, on_delete=models.PROTECT, related_name="questions")
     subject = models.ForeignKey("subjects.Subject", on_delete=models.PROTECT, related_name="questions")
     topic = models.ForeignKey(Topic, null=True, blank=True, on_delete=models.PROTECT, related_name="questions")
     question_type = models.CharField(max_length=24, choices=Type.choices)
@@ -91,6 +98,7 @@ class Question(models.Model):
     class Meta:
         ordering = ("-created_at", "id")
         constraints = [
+            ownership_constraint('question_owner_shape'),
             models.UniqueConstraint(fields=('revision_family', 'revision_number'), name='unique_question_family_revision'),
             models.CheckConstraint(condition=models.Q(revision_number__gte=1), name='question_revision_positive'),
             models.CheckConstraint(condition=(models.Q(content_locked=True) | ~models.Q(status__in=['approved', 'archived'])), name='question_approved_content_locked'),
@@ -101,6 +109,7 @@ class Question(models.Model):
         ]
 
     def clean(self):
+        validate_content_owner(self)
         errors = {}
         if self.pk:
             from django.apps import apps
@@ -171,7 +180,14 @@ class Question(models.Model):
         return self.content_locked or bool(self.pk and AttemptQuestion.objects.filter(question_id=self.pk).exists())
 
     def validate_integrity(self):
+        validate_content_owner(self)
         original = type(self).objects.select_for_update().filter(pk=self.pk).first() if self.pk else None
+        if self.owner_scope == OwnerScope.PLATFORM:
+            from institutions.permissions import is_platform_administrator
+            for field in ('created_by', 'reviewed_by'):
+                assigned = original is None or getattr(original, field + '_id') != getattr(self, field + '_id')
+                if assigned and getattr(self, field + '_id') and not is_platform_administrator(getattr(self, field)):
+                    raise ValidationError({field: 'Platform content requires a platform administrator.'})
         if self.content_locked and self.status not in {self.Status.APPROVED, self.Status.ARCHIVED}:
             raise ValidationError('Only approved content can acquire a permanent revision lock.')
         if original:
@@ -193,7 +209,7 @@ class Question(models.Model):
             raise ValidationError('Create a draft with its options before approving a revision.')
         if not original:
             root = type(self).objects.select_for_update().filter(revision_family=self.revision_family).order_by('revision_number').first()
-            if root and (root.institution_id != self.institution_id or self.revision_number !=
+            if root and ((root.owner_scope, root.institution_id) != (self.owner_scope, self.institution_id) or self.revision_number !=
                     (type(self).objects.filter(revision_family=self.revision_family).aggregate(n=models.Max('revision_number'))['n'] + 1)):
                 raise ValidationError('Use the revision creation service for the next revision in this family.')
             if not root and self.revision_number != 1:

@@ -1,6 +1,7 @@
 import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 
 export const platformCopy = {
+  'Platform Library': 'مكتبة المنصة', 'Institution Banks': 'بنوك المؤسسات',
   Overview: 'نظرة عامة', Clients: 'العملاء', Exams: 'الاختبارات', Reports: 'التقارير',
   Candidates: 'المرشحون', Submissions: 'التسليمات', Results: 'النتائج',
   'Platform Administrator': 'مدير المنصة', 'Return to Platform': 'العودة إلى المنصة',

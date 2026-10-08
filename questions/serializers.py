@@ -17,6 +17,20 @@ def _visible_institution_ids(context):
     return ()
 
 
+def _content_queryset(model, context):
+    if context.get('platform_library'):
+        return model.objects.filter(owner_scope='platform', institution__isnull=True)
+    return model.objects.filter(owner_scope='institution', institution_id__in=_visible_institution_ids(context))
+
+
+def _reject_ownership_input(serializer):
+    data = getattr(serializer, 'initial_data', {})
+    if 'owner_scope' in data:
+        raise serializers.ValidationError({'owner_scope': 'Ownership is assigned by this endpoint.'})
+    if 'institution' in data and (serializer.context.get('platform_library') or data['institution'] is None):
+        raise serializers.ValidationError({'institution': 'Use the selected workspace for institution content.'})
+
+
 class TopicSerializer(serializers.ModelSerializer):
     institution = serializers.PrimaryKeyRelatedField(read_only=True)
     subject = serializers.PrimaryKeyRelatedField(queryset=Subject.objects.none())
@@ -24,9 +38,8 @@ class TopicSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        institutions = _visible_institution_ids(self.context)
-        self.fields["subject"].queryset = Subject.objects.filter(institution_id__in=institutions)
-        self.fields["parent"].queryset = Topic.objects.filter(institution_id__in=institutions)
+        self.fields["subject"].queryset = _content_queryset(Subject, self.context)
+        self.fields["parent"].queryset = _content_queryset(Topic, self.context)
 
     class Meta:
         model = Topic
@@ -34,6 +47,7 @@ class TopicSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "institution", "created_at", "updated_at")
 
     def validate(self, attrs):
+        _reject_ownership_input(self)
         institution = self.context.get("institution") or getattr(self.instance, "institution", None)
         subject = attrs.get("subject", getattr(self.instance, "subject", None))
         parent = attrs.get("parent", getattr(self.instance, "parent", None))
@@ -86,9 +100,8 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        institutions = _visible_institution_ids(self.context)
-        self.fields["subject"].queryset = Subject.objects.filter(institution_id__in=institutions)
-        self.fields["topic"].queryset = Topic.objects.filter(institution_id__in=institutions)
+        self.fields["subject"].queryset = _content_queryset(Subject, self.context)
+        self.fields["topic"].queryset = _content_queryset(Topic, self.context)
 
     class Meta:
         model = Question
@@ -101,6 +114,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "institution", "status", "created_by", "reviewed_by", "created_at", "updated_at", "revision_family", "revision_number", "content_locked", "available_for_new_assessments")
 
     def validate(self, attrs):
+        _reject_ownership_input(self)
         institution = self.context.get("institution") or getattr(self.instance, "institution", None)
         if self.instance and self.instance.content_locked:
             raise serializers.ValidationError('Approved question content is immutable. Create a new revision.')
@@ -142,6 +156,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         question = Question.objects.create(
             **validated_data,
             institution=self.context["institution"],
+            owner_scope='platform' if self.context.get('platform_library') else 'institution',
             created_by=self.context["request"].user,
             status=Question.Status.DRAFT,
         )
