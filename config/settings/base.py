@@ -8,7 +8,11 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "unsafe-development-key")
 MADAAR_PUBLIC_REGISTRATION_ENABLED = os.getenv("MADAAR_PUBLIC_REGISTRATION_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED = os.getenv("MADAAR_PUBLIC_WORKSPACE_CREATION_ENABLED", "false").strip().lower() in {"1", "true", "yes"}
 DEBUG = False
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
