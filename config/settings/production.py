@@ -1,8 +1,12 @@
 import os
 from django.core.exceptions import ImproperlyConfigured
 from .base import *
+from .origins import environment_origins
 
 DEBUG = False
+CORS_ALLOWED_ORIGINS = environment_origins("DJANGO_CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = environment_origins("DJANGO_CSRF_TRUSTED_ORIGINS")
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if host.strip()]
 if SECRET_KEY == "unsafe-development-key":
     raise ImproperlyConfigured("DJANGO_SECRET_KEY must be configured for production.")
@@ -12,9 +16,10 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_SECURE = True
 QUICK_EXAM_COOKIE_SECURE = True
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = os.getenv("DJANGO_SESSION_COOKIE_SAMESITE", "Lax")
+SESSION_COOKIE_SAMESITE = os.getenv("DJANGO_SESSION_COOKIE_SAMESITE", "None")
 CSRF_COOKIE_SECURE = True
-CSRF_COOKIE_SAMESITE = os.getenv("DJANGO_CSRF_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = os.getenv("DJANGO_CSRF_COOKIE_SAMESITE", "None")
+QUICK_EXAM_COOKIE_SAMESITE = os.getenv("DJANGO_QUICK_EXAM_COOKIE_SAMESITE", "None")
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "True").lower() in {"1", "true", "yes"}
 SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0"))

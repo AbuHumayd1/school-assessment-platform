@@ -58,7 +58,7 @@ class QuickVerifyView(QuickPublicView):
         response = Response({"verified": True})
         response.set_cookie(COOKIE_NAME, token, max_age=max(1, int((session.expires_at - timezone.now()).total_seconds())),
                             path=COOKIE_PATH, secure=settings.QUICK_EXAM_COOKIE_SECURE,
-                            httponly=True, samesite="Lax")
+                            httponly=True, samesite=settings.QUICK_EXAM_COOKIE_SAMESITE)
         return response
 
 
@@ -68,7 +68,7 @@ class QuickLogoutView(QuickPublicView):
         serializer.is_valid(raise_exception=True)
         logout_session(request.COOKIES.get(COOKIE_NAME, ""))
         response = Response(status=status.HTTP_204_NO_CONTENT)
-        response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH, samesite="Lax")
+        response.delete_cookie(COOKIE_NAME, path=COOKIE_PATH, samesite=settings.QUICK_EXAM_COOKIE_SAMESITE)
         response.cookies[COOKIE_NAME]["secure"] = settings.QUICK_EXAM_COOKIE_SECURE
         response.cookies[COOKIE_NAME]["httponly"] = True
         return response

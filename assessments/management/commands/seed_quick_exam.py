@@ -52,14 +52,13 @@ class Command(BaseCommand):
                 subject = demo._subject(institution)
                 topic = demo._topic(institution, subject)
                 questions = self._questions(demo, institution, subject, topic, actor)
-                assessment = self._assessment(demo, institution, subject, questions, actor)
+                assessment = self._assessment(demo, institution, subject, questions, actor, candidate)
                 _validate_assessment_for_candidate(assessment, candidate, timezone.now(), access_mode="quick")
 
                 configuration, _ = configure_quick_access(assessment, actor, exam_code=EXAM_CODE, enabled=True)
                 credential = QuickExamCredential.objects.filter(configuration=configuration, candidate=candidate).first()
                 pin = None
                 if credential is None:
-                    AssessmentCandidate.objects.get_or_create(assessment=assessment, candidate=candidate, defaults={"assigned_by": actor})
                     credential, pin = generate_credential(configuration, candidate, actor)
                 elif options["reset"]:
                     credential, pin = reset_credential(configuration, candidate, actor, expires_at=None)
@@ -126,11 +125,12 @@ class Command(BaseCommand):
             questions.append(question)
         return questions
 
-    def _assessment(self, demo, institution, subject, questions, actor):
+    def _assessment(self, demo, institution, subject, questions, actor, candidate):
         matches = Assessment.objects.filter(institution=institution, title=ASSESSMENT_TITLE)
         if matches.count() > 1:
             raise CommandError("The Quick demo assessment title is ambiguous; refusing to create a duplicate.")
         assessment = matches.first()
+        existing = assessment is not None
         if assessment:
             if assessment.description != ASSESSMENT_DESCRIPTION or assessment.subject_id != subject.pk or assessment.candidate_access != Assessment.CandidateAccess.ACCESS_CODE:
                 raise CommandError("The Quick demo assessment title is already used by different data; refusing to overwrite it.")
@@ -157,6 +157,11 @@ class Command(BaseCommand):
                 row = AssessmentQuestion(assessment=assessment, question=question, order=order, marks=Decimal("2.00"))
                 row.full_clean()
                 row.save()
+
+        # Eligibility must exist before scheduling or issuing credentials.
+        # Use the guarded assignment model, including on idempotent reruns.
+        AssessmentCandidate.objects.get_or_create(assessment=assessment, candidate=candidate, defaults={"assigned_by": actor})
+        if not existing:
             demo._schedule_assessment(assessment, actor)
 
         assessment.full_clean()

@@ -9,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APIClient
 
 from attempts.models import Attempt
+from attempts.tests import finish_fixture_exam
 from attempts.services import _validate_assessment_for_candidate, start_attempt
 from attempts.tenancy import assessment_window_state
 from .models import Assessment, AssessmentCandidate
@@ -39,8 +40,10 @@ class CandidateAvailabilityTests(TestCase):
             # Account and Quick delivery both use direct assignment in these fixtures.
             Assessment.objects.filter(pk=cls.assessment.pk).update(candidate_access="specific_candidates", group=None)
             cls.assessment.refresh_from_db()
-            for exam, candidate in ((cls.assessment, cls.candidate), (cls.quick_assessment, cls.quick_candidate)):
-                AssessmentCandidate.objects.create(assessment=exam, candidate=candidate, assigned_by=cls.admin)
+            # The shared Quick fixture already assigns its candidate; only the
+            # account fixture needs an assignment after switching delivery mode.
+            AssessmentCandidate.objects.create(assessment=cls.assessment, candidate=cls.candidate, assigned_by=cls.admin)
+            for exam in (cls.assessment, cls.quick_assessment):
                 Assessment.objects.filter(pk=exam.pk).update(status='approved')
                 exam.refresh_from_db()
 
@@ -184,11 +187,22 @@ class CandidateAvailabilityTests(TestCase):
             start_attempt(self.user, self.assessment.pk, now=INSIDE)
         self.assertEqual(str(error.exception.detail), "Candidate is not eligible.")
 
-    def test_invalid_question_configuration_is_safe_without_internal_details(self):
-        self.quick_assessment.assessment_questions.all().delete()
+    def test_invalid_configuration_is_safe_without_internal_details(self):
+        # Reopen before participation, configure an active group, and approve.
+        # Later group deactivation is allowed without changing pinned questions.
+        self.quick_assessment.status = Assessment.Status.DRAFT
+        self.quick_assessment.save(update_fields=["status"])
+        self.quick_assessment.group = self.group
+        self.quick_assessment.save(update_fields=["group"])
+        finish_fixture_exam(self.quick_assessment, Assessment.Status.APPROVED)
+        self.assertTrue(self.summary()["can_start"])
+        self.group.is_active = False
+        self.group.save(update_fields=["is_active"])
         availability = self.summary()
+        self.assertFalse(availability["can_start"])
         self.assertEqual(availability["reason"], "not_ready")
         self.assertEqual(availability["message"], "Exam is not ready for candidates.")
         response = self.quick.post("/api/v1/quick-exam/start/", {}, format="json")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data, {"detail": "Exam is not ready for candidates.", "reason": "not_ready"})
+        self.assertFalse(Attempt.objects.exists())

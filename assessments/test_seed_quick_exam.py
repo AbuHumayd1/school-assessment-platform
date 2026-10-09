@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from accounts.models import User
 from assessments.management.commands.seed_quick_exam import ASSESSMENT_DESCRIPTION, ASSESSMENT_TITLE, EXAM_CODE
-from assessments.models import Assessment, QuickExamConfiguration, QuickExamCredential, QuickExamSession
+from assessments.models import Assessment, AssessmentCandidate, QuickExamConfiguration, QuickExamCredential, QuickExamSession
 from assessments.quick_services import configure_quick_access, generate_credential, reset_credential, session_is_current, verify_credential
 from attempts.models import Attempt, AttemptQuestion
 from attempts.services import _validate_assessment_for_candidate
@@ -98,6 +98,18 @@ class SeedQuickExamCommandTests(TestCase):
         rows = _validate_assessment_for_candidate(assessment, self.candidate, timezone.now(), access_mode="quick")
         self.assertEqual(len(rows), 3)
         self.assertEqual(assessment.total_marks, 6)
+
+    def test_candidate_is_assigned_before_scheduling(self):
+        from assessments.management.commands.seed_demo_assessment import Command as DemoAssessmentCommand
+        schedule = DemoAssessmentCommand._schedule_assessment
+
+        def schedule_after_assignment(demo, assessment, actor):
+            self.assertTrue(AssessmentCandidate.objects.filter(assessment=assessment, candidate=self.candidate, assigned_by=self.admin).exists())
+            return schedule(demo, assessment, actor)
+
+        with patch.object(DemoAssessmentCommand, "_schedule_assessment", autospec=True, side_effect=schedule_after_assignment) as mocked:
+            self.run_seed()
+        mocked.assert_called_once()
 
     def test_uses_test001_without_creating_or_requiring_a_login(self):
         output = self.run_seed()
@@ -218,12 +230,15 @@ class SeedQuickExamCommandTests(TestCase):
         self.run_seed()
         assessment, _, credential = self.fixture()
         rows = list(assessment.assessment_questions.values_list("pk", "question_id", "order", "marks"))
+        assignments = list(assessment.candidate_assignments.values_list("pk", "candidate_id", "assigned_by_id"))
         question_ids = list(Question.objects.values_list("pk", flat=True))
         option_ids = list(QuestionOption.objects.values_list("pk", flat=True))
         self.run_seed()
         self.assertEqual(Assessment.objects.count(), 1)
         self.assertEqual(QuickExamConfiguration.objects.count(), 1)
         self.assertEqual(QuickExamCredential.objects.count(), 1)
+        self.assertEqual(AssessmentCandidate.objects.count(), 1)
+        self.assertEqual(list(assessment.candidate_assignments.values_list("pk", "candidate_id", "assigned_by_id")), assignments)
         self.assertEqual(list(assessment.assessment_questions.values_list("pk", "question_id", "order", "marks")), rows)
         self.assertEqual(list(Question.objects.values_list("pk", flat=True)), question_ids)
         self.assertEqual(list(QuestionOption.objects.values_list("pk", flat=True)), option_ids)

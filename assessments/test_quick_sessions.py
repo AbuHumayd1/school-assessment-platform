@@ -21,7 +21,7 @@ from audit.models import AuditEvent
 from candidates.models import Candidate
 from results.models import Result
 from tenants.models import InstitutionMembership
-from .models import Assessment, AssessmentQuestion, QuickExamConfiguration, QuickExamCredential, QuickExamSession
+from .models import Assessment, AssessmentCandidate, AssessmentQuestion, QuickExamConfiguration, QuickExamCredential, QuickExamSession
 from .quick_services import configure_quick_access, reset_credential, revoke_credential
 from .quick_sessions import COOKIE_NAME, COOKIE_PATH, INVALID_DETAILS, session_expiry
 
@@ -42,6 +42,7 @@ class QuickSessionTests(TestCase):
             created_by=cls.staff, candidate_access="access_code", title="Quick assessment", randomize_questions=True, randomize_options=True)
         for position, question in enumerate((cls.mcq, cls.multi, cls.truefalse), 1):
             AssessmentQuestion.objects.create(assessment=cls.quick_assessment, question=question, order=position, marks=1)
+        AssessmentCandidate.objects.create(assessment=cls.quick_assessment, candidate=cls.quick_candidate, assigned_by=cls.admin)
         finish_fixture_exam(cls.quick_assessment)
         cls.configuration = QuickExamConfiguration.objects.create(assessment=cls.quick_assessment, exam_code="PUBLIC-2026", enabled=True)
         cls.credential = QuickExamCredential.objects.create(configuration=cls.configuration, candidate=cls.quick_candidate, pin_hash=make_password(cls.PIN))
@@ -93,6 +94,24 @@ class QuickSessionTests(TestCase):
     def test_exam_code_normalization_and_candidate_whitespace(self):
         response = self.verify(exam_code=" public-2026 ", candidate_id=" QUICK-001 ")
         self.assertEqual(response.status_code, 200)
+
+    def test_assigned_candidate_with_valid_credential_can_start(self):
+        attempt = self.begin()
+        self.assertEqual(attempt.candidate_id, self.quick_candidate.pk)
+        self.assertEqual(attempt.assessment_id, self.quick_assessment.pk)
+        self.assertEqual(Attempt.objects.count(), 1)
+
+    def test_unassigned_candidate_with_valid_credential_cannot_start(self):
+        candidate = Candidate.objects.create(institution=self.school, candidate_id="QUICK-UNASSIGNED", first_name="Unassigned", last_name="Learner")
+        QuickExamCredential.objects.create(configuration=self.configuration, candidate=candidate, pin_hash=make_password(self.PIN))
+        self.assertEqual(self.verify(candidate_id=candidate.candidate_id).status_code, 200)
+        response = self.client.post(self.base + "start/", {}, format="json")
+        self.assertEqual(response.status_code, 403, response.data)
+        self.assertEqual(response.data["reason"], "not_eligible")
+        self.assertFalse(AssessmentCandidate.objects.filter(assessment=self.quick_assessment, candidate=candidate).exists())
+        self.assertFalse(Attempt.objects.exists())
+        self.assertFalse(Answer.objects.exists())
+        self.assertFalse(Result.objects.exists())
 
     def test_wrong_code_candidate_and_pin_are_indistinguishable(self):
         for extra in ({"exam_code": "UNKNOWN"}, {"candidate_id": "OTHER"}, {"pin": "WRONG"}, {"exam_code": "INVALID/"}, {"exam_code": ""}):
@@ -598,6 +617,7 @@ class QuickSessionTests(TestCase):
                     result_visibility=visibility, result_release_mode=release)
                 for position, question in enumerate((self.mcq, self.multi, self.truefalse), 1):
                     AssessmentQuestion.objects.create(assessment=self.quick_assessment, question=question, order=position, marks=1)
+                AssessmentCandidate.objects.create(assessment=self.quick_assessment, candidate=self.quick_candidate, assigned_by=self.admin)
                 finish_fixture_exam(self.quick_assessment)
                 self.configuration = QuickExamConfiguration.objects.create(assessment=self.quick_assessment,
                     exam_code=f'POLICY-{self.quick_assessment.pk}', enabled=True)
