@@ -1,4 +1,6 @@
 export const examCopy = {
+  'No subjects have been created for this institution yet.': 'لم تُنشأ أي مواد لهذه المؤسسة بعد.',
+  'Create a subject': 'إنشاء مادة',
   'Show score immediately after submission': 'عرض الدرجة فور التسليم',
   'Candidates see only their score after submitting. Grades, pass/fail status, answers and full results remain hidden until results are released.': 'يرى المرشحون درجتهم فقط بعد التسليم. تظل التقديرات وحالة النجاح أو الرسوب والإجابات والنتائج الكاملة مخفية حتى إصدار النتائج.',
   'A credential already exists. Use Reset PIN to issue a new PIN.': 'توجد بيانات دخول بالفعل. استخدم إعادة إصدار رمز الدخول للحصول على رمز جديد.',

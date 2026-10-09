@@ -24,6 +24,7 @@ import PlaceholderPage from './pages/PlaceholderPage.jsx'
 import WorkspaceDashboardPage from './pages/staff/WorkspaceDashboardPage.jsx'
 import ExamsPage from './pages/staff/ExamsPage.jsx'
 import QuestionsPage from './pages/staff/QuestionsPage.jsx'
+import SubjectsPage from './pages/staff/SubjectsPage.jsx'
 import PlatformLibrary, { InstitutionBanks } from './pages/platform/PlatformLibrary.jsx'
 import ExamDetailPage from './pages/staff/ExamDetailPage.jsx'
 import ExamFormPage from './pages/staff/ExamFormPage.jsx'
@@ -104,6 +105,7 @@ function StaffPage({ title, capability }) {
   const { currentRole, currentWorkspace } = useWorkspace()
   if (!canAccessWorkspaceCapability(currentRole, capability, currentWorkspace?.institution.workspace_mode)) return <Navigate to="/app" replace />
   if (['results', 'reports', 'submissions'].includes(capability)) return <OutcomesCentrePage section={capability} />
+  if (capability === 'subjects') return <SubjectsPage />
   return <PlaceholderPage title={title} />
 }
 

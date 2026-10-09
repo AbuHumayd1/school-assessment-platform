@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useWorkspace } from '../../context/WorkspaceContext.jsx'
 import { getExam, examRequest, examError, examFields, localDateValue } from '../../services/assessments.js'
 import Button from '../../components/common/Button.jsx'
+import { SubjectEmptyState } from './SubjectsPage.jsx'
 import { useExamCopy, useOwnerRead, ReadState } from './exam-ui.jsx'
 import { resultAvailability, resultAvailabilityChoices, resultAvailabilityExplanation } from '../../services/resultAvailability.js'
 
@@ -17,6 +18,7 @@ export function ExamFields({ values, options, t, onChange, disabled, subjectLock
     }}>{resultAvailabilityChoices.map(choice => <option key={choice.value} value={choice.value}>{t(choice.label)}</option>)}</select></label><p id="result-availability-help">{t('When should candidates see their results?')} {t(resultAvailabilityExplanation(values))}</p></div>
     if (key === 'show_score_immediately') return <div className="exam-wide" key={key}><label className="exam-checkbox"><input name={key} type="checkbox" checked={Boolean(values[key])} onChange={event => onChange(key, event.target.checked)} aria-describedby="immediate-score-help" />{t('Show score immediately after submission')}</label><p id="immediate-score-help">{t('Candidates see only their score after submitting. Grades, pass/fail status, answers and full results remain hidden until results are released.')}</p></div>
     const name = labels[key]
+    if (key === 'subject' && options.subjects.length === 0) return <div key={key}><SubjectEmptyState t={t} /></div>
     const props = { className: 'form-control', name: key, value: values[key], onChange: event => onChange(key, event.target.value) }
     if (typeof defaults[key] === 'boolean') return <label className="exam-checkbox" key={key}><input type="checkbox" checked={values[key]} onChange={event => onChange(key, event.target.checked)} />{t(name)}</label>
     const choices = key === 'subject' ? options.subjects.map(row => ({ value: row.id, label: row.name, raw: true })) : key === 'group' ? options.groups.map(row => ({ value: row.id, label: row.name, raw: true })) : options.choices[key]

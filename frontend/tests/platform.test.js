@@ -67,7 +67,8 @@ test('release permission is one accessible persisted-setting control', () => {
 test('managed navigation allows all six operational boards for client and platform administrators', () => {
   for (const role of ['institution_admin', 'platform_admin']) {
     for (const capability of ['dashboard', 'assessments', 'candidates', 'submissions', 'results', 'reports']) assert.equal(canAccessWorkspaceCapability(role, capability, 'managed_exam'), true)
-    for (const capability of ['memberships', 'groups', 'subjects', 'questions', 'institution_settings']) assert.equal(canAccessWorkspaceCapability(role, capability, 'managed_exam'), false)
+    for (const capability of ['memberships', 'groups', 'questions', 'institution_settings']) assert.equal(canAccessWorkspaceCapability(role, capability, 'managed_exam'), false)
+    assert.equal(canAccessWorkspaceCapability(role, 'subjects', 'managed_exam'), role === 'platform_admin')
   }
 })
 

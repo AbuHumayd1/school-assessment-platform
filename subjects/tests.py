@@ -54,3 +54,30 @@ class SubjectAPITests(APITestCase):
         created = self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': 'Own same code', 'code': 'SHARED'}, format='json')
         self.assertEqual(created.status_code, 201)
         self.assertEqual(Subject.objects.count(), 2)
+
+    def test_institution_admin_bootstraps_subject_and_lists_it_in_selected_workspace(self):
+        InstitutionMembership.objects.filter(user=self.user).update(role='institution_admin')
+        response = self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': 'First subject', 'code': 'FIRST'}, format='json', HTTP_X_INSTITUTION_ID=str(self.a.pk))
+        self.assertEqual(response.status_code, 201, response.data)
+        listed = self.client.get('/api/v1/subjects/', HTTP_X_INSTITUTION_ID=str(self.a.pk))
+        self.assertEqual(listed.status_code, 200)
+        rows = listed.data['results'] if isinstance(listed.data, dict) else listed.data
+        self.assertEqual([row['id'] for row in rows], [response.data['id']])
+        options = self.client.get('/api/v1/assessments/form-options/', HTTP_X_INSTITUTION_ID=str(self.a.pk))
+        self.assertEqual(options.status_code, 200, options.data)
+        self.assertEqual([row['id'] for row in options.data['subjects']], [response.data['id']])
+        self.assertEqual(self.client.get('/api/v1/subjects/', HTTP_X_INSTITUTION_ID=str(self.b.pk)).status_code, 404)
+
+    def test_platform_authority_can_bootstrap_managed_client_subjects(self):
+        InstitutionMembership.objects.filter(user=self.user).update(role='platform_admin')
+        self.b.workspace_mode = Institution.WorkspaceMode.MANAGED_EXAM
+        self.b.save(update_fields=['workspace_mode'])
+        response = self.client.post('/api/v1/subjects/', {'institution': self.b.pk, 'name': 'Managed subject', 'code': 'MANAGED'}, format='json', HTTP_X_INSTITUTION_ID=str(self.b.pk))
+        self.assertEqual(response.status_code, 201, response.data)
+        listed = self.client.get('/api/v1/subjects/', HTTP_X_INSTITUTION_ID=str(self.b.pk))
+        self.assertEqual(listed.status_code, 200)
+        rows = listed.data['results'] if isinstance(listed.data, dict) else listed.data
+        self.assertEqual([row['id'] for row in rows], [response.data['id']])
+        mismatch = self.client.post('/api/v1/subjects/', {'institution': self.a.pk, 'name': 'Wrong workspace', 'code': 'WRONG'}, format='json', HTTP_X_INSTITUTION_ID=str(self.b.pk))
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertEqual(Subject.objects.count(), 1)

@@ -33,6 +33,7 @@ export function canManageQuickAccess(role) { return administratorRoles.has(role)
 
 export const managedCapabilities = new Set(['dashboard', 'assessments', 'candidates', 'submissions', 'results', 'reports'])
 export function canAccessWorkspaceCapability(role, capability, workspaceMode) {
+  if (role === 'platform_admin' && capability === 'subjects') return true
   return canAccessStaffCapability(role, capability) && (workspaceMode !== 'managed_exam' || managedCapabilities.has(capability))
 }
 export function canPrepareWorkspace(role, workspaceMode) {

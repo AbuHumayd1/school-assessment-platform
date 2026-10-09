@@ -4,12 +4,15 @@ import { useWorkspace } from '../../context/WorkspaceContext.jsx'
 import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 import { staffApiFetch } from '../../services/api.js'
 import QuestionMedia from '../../components/common/QuestionMedia.jsx'
+import { SubjectEmptyState } from './SubjectsPage.jsx'
 import ImportBlocks, { classifyImportBlock, importMessage } from './ImportBlocks.jsx'
 import AnswerKeyPanel, { answerKeyCopy, saveAnswerMatch, uploadAnswerKey, downloadAnswerTemplate } from './AnswerKeyPanel.jsx'
 import { importWorkflowCopy, sessionMode, ImportModeChoice, ImportWorkflowHeading, ImportCards, manageImportAction } from './ImportWorkflow.jsx'
 import './question-import.css'
 
 const copy = {
+  'No subjects have been created for this institution yet.': 'لم تُنشأ أي مواد لهذه المؤسسة بعد.',
+  'Create a subject': 'إنشاء مادة',
   ...answerKeyCopy,
   ...importWorkflowCopy,
  'Source document':'\u0627\u0644\u0645\u0633\u062a\u0646\u062f \u0627\u0644\u0645\u0635\u062f\u0631','Import reference':'\u0645\u0631\u062c\u0639 \u0627\u0644\u0627\u0633\u062a\u064a\u0631\u0627\u062f','Document position':'\u0627\u0644\u0645\u0648\u0636\u0639 \u0641\u064a \u0627\u0644\u0645\u0633\u062a\u0646\u062f',
@@ -345,6 +348,7 @@ export default function QuestionsPage() {
   }
   async function upload(e) {
     e.preventDefault();const data = new FormData(e.currentTarget)
+    if (kind === 'docx' && !subjects.some(subject => String(subject.id) === data.get('subject'))) { setError(t('Select or create a subject before importing.')); return }
     await run(async () => {
       const result = await staffApiFetch(kind==='docx' ? 'questions/import/docx/preview/' : 'questions/import/',{method:'POST',body:data})
       if(kind==='docx')navigate(`/app/questions/import/word/${result.import_session_id}`);else{setSuccess(result.imported_rows);setRevision(v=>v+1)}
@@ -383,7 +387,8 @@ export default function QuestionsPage() {
       <div className="import-actions"><strong>{t('Import Questions')}</strong><button onClick={() => setKind('csv')}>{t('CSV')}</button><button onClick={() => setKind('docx')}>{t('Word document')}</button></div>
       {kind === 'docx' && <p>{t('New imports can be resumed for 7 days. Save each review change.')}</p>}
       <ImportCards imports={recent} t={t} busy={busy} onContinue={id=>navigate(`/app/questions/import/word/${id}`)} onDelete={deleteImport}/>
-      {kind && <form className="import-upload" onSubmit={upload}>{kind==='docx' && <><h2>{t('Import Questions from Word')}</h2><ImportModeChoice t={t} busy={busy}/></>}<label>{t(kind==='docx'?'Word document':'CSV')}<input required name="file" type="file" accept={kind==='docx'?'.docx':'.csv'} disabled={busy} /></label><button disabled={busy}>{t(busy?'Processing…':'Upload')}</button><button type="button" disabled={busy} onClick={() => setKind(null)}>{t('Cancel')}</button></form>}
+      {questions !== null && subjects.length === 0 && <SubjectEmptyState t={t} />}
+      {kind && <form className="import-upload" onSubmit={upload}>{kind==='docx' && <><h2>{t('Import Questions from Word')}</h2><ImportModeChoice t={t} busy={busy}/><label>{t('Subject')}<select name="subject" required disabled={busy || subjects.length === 0}><option value="">{t('Select a subject')}</option>{subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label></>}<label>{t(kind==='docx'?'Word document':'CSV')}<input required name="file" type="file" accept={kind==='docx'?'.docx':'.csv'} disabled={busy} /></label><button disabled={busy || (kind==='docx' && subjects.length === 0)}>{t(busy?'Processing…':'Upload')}</button><button type="button" disabled={busy} onClick={() => setKind(null)}>{t('Cancel')}</button></form>}
       {questions===null ? <p>{t('Loading\u2026')}</p> : <QuestionBank questions={questions} subjects={subjects} t={t}/>}
     </>}{busy && preview && <p role="status">{t('Processing…')}</p>}</div>
 }

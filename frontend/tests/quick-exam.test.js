@@ -166,10 +166,13 @@ test('public reveal is progressive, once per group, and immediately visible for 
 
 
 test('public navigation promotes candidate access into desktop/mobile actions and keeps acquisition primary in both languages', async () => {
-  const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
+  const server = await createServer({ plugins: [{ name: 'navigation-test-whatsapp', enforce: 'pre', transform(source, id) {
+    if (id.endsWith('/ManagedExamCTA.jsx')) return source.replace('import.meta.env.VITE_PUBLIC_WHATSAPP_NUMBER', JSON.stringify('12345678901'))
+  } }], server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
   const previousStorage = globalThis.localStorage
   try {
     const { default: Layout } = await server.ssrLoadModule('/src/layouts/PublicLayout.jsx')
+    const { managedExamMessage } = await server.ssrLoadModule('/src/components/common/ManagedExamCTA.jsx')
     for (const locale of ['en', 'ar']) {
       globalThis.localStorage = { getItem: () => locale }
       const route = React.createElement(Route, { element: React.createElement(Layout) }, React.createElement(Route, { path: '*', element: React.createElement('p', null, 'Content') }))
@@ -183,7 +186,14 @@ test('public navigation promotes candidate access into desktop/mobile actions an
       const mobile = drawer.slice(drawer.indexOf('class="public-mobile-drawer__actions"'), drawer.indexOf('class="public-language-switcher"'))
       for (const actions of [header, mobile]) {
         const links = [...actions.matchAll(/<a([^>]+)>(.*?)<\/a>/g)]
-        assert.deepEqual(links.map(([, attrs]) => attrs.match(/href="([^"]+)"/)[1]), ['/take-exam', '/signin', '/contact'])
+        const hrefs = links.map(([, attrs]) => attrs.match(/href="([^"]+)"/)[1].replaceAll('&#x27;', "'"))
+        assert.deepEqual(hrefs.slice(0, 2), ['/take-exam', '/signin'])
+        const destination = new URL(hrefs[2])
+        assert.equal(destination.origin, 'https://wa.me')
+        assert.equal(destination.pathname, '/12345678901')
+        assert.equal(destination.searchParams.get('text'), managedExamMessage)
+        assert.match(links[2][1], /target="_blank"/)
+        assert.match(links[2][1], /rel="noopener noreferrer"/)
         assert.match(links[0][1], /button--outline.*public-exam-cta/)
         assert.equal(links[0][2], quickExamTranslate(locale, 'Take an Exam'))
         assert.match(links[1][1], /button--ghost/)
