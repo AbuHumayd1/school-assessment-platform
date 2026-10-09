@@ -5,7 +5,7 @@ export function savedTheme(storage) {
 export function initialTheme(environment = globalThis) {
   let preference
   try { preference = savedTheme(environment.localStorage) } catch { /* Storage access can be disabled. */ }
-  return preference || (environment.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  return preference || 'light'
 }
 export function applyTheme(theme, environment = globalThis, persist = false) {
   if (!['light', 'dark'].includes(theme)) return

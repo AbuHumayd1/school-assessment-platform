@@ -13,8 +13,8 @@ function environment(preference = null, systemDark = false) {
   const values = new Map(preference ? [[THEME_KEY, preference]] : [])
   return { localStorage: { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) }, matchMedia: () => ({ matches: systemDark }), document: { documentElement: { dataset: {}, style: {} } }, values }
 }
-test('theme uses the system unless an explicit saved light/dark choice exists', () => {
-  assert.equal(initialTheme(environment(null, true)), 'dark')
+test('theme defaults to light regardless of system, preserving explicit light/dark choices', () => {
+  assert.equal(initialTheme(environment(null, true)), 'light')
   assert.equal(initialTheme(environment(null, false)), 'light')
   assert.equal(initialTheme(environment('light', true)), 'light')
   assert.equal(initialTheme(environment('dark', false)), 'dark')
@@ -25,11 +25,11 @@ test('theme uses the system unless an explicit saved light/dark choice exists', 
   assert.equal(initialTheme(env), 'dark')
   applyTheme('light', env, true); assert.equal(initialTheme(env), 'light')
   const blocked = { matchMedia: () => ({ matches: true }), get localStorage() { throw new Error('Storage unavailable') } }
-  assert.equal(initialTheme(blocked), 'dark')
+  assert.equal(initialTheme(blocked), 'light')
 })
 test('pre-React initializer matches persisted and system theme before mounting React', async () => {
   const source = await readFile(new URL('../public/theme-init.js', import.meta.url), 'utf8')
-  for (const [preference, system, expected] of [['dark', false, 'dark'], ['light', true, 'light'], [null, true, 'dark']]) {
+  for (const [preference, system, expected] of [['dark', false, 'dark'], ['light', true, 'light'], [null, true, 'light'], [null, false, 'light']]) {
     const env = environment(preference, system); vm.runInNewContext(source, { ...env, window: env })
     assert.equal(env.document.documentElement.dataset.theme, expected)
   }
