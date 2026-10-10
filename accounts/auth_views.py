@@ -39,7 +39,10 @@ class CsrfTokenView(APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request):
-        return Response({"csrfToken": get_token(request)})
+        response = Response({"csrfToken": get_token(request)})
+        # A cached token response cannot establish a fresh browser's cookie.
+        response["Cache-Control"] = "no-store, private"
+        return response
 
 
 @method_decorator(csrf_protect, name="dispatch")

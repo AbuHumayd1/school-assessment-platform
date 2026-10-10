@@ -375,6 +375,26 @@ class QuickSessionTests(TestCase):
         self.assertEqual(self.verify().status_code, 403)
         self.assertFalse(QuickExamSession.objects.exists())
 
+    def test_fresh_client_requires_bootstrap_cookie_and_matching_header(self):
+        self.client = APIClient(enforce_csrf_checks=True)
+        self.assertEqual(self.verify().status_code, 403)
+        bootstrap = self.client.get('/api/v1/auth/csrf/')
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertIn('csrftoken', bootstrap.cookies)
+        self.assertIn('no-store', bootstrap['Cache-Control'])
+        self.client.defaults['HTTP_X_CSRFTOKEN'] = 'x' * 64
+        self.assertEqual(self.verify().status_code, 403)
+        self.assertFalse(QuickExamSession.objects.exists())
+        self.client.defaults['HTTP_X_CSRFTOKEN'] = bootstrap.data['csrfToken']
+        self.assertEqual(self.verify().status_code, 200)
+        self.assertEqual(QuickExamSession.objects.count(), 1)
+        self.assertFalse(Attempt.objects.exists())
+
+    def test_matching_bootstrap_header_without_cookie_is_rejected(self):
+        self.client.cookies.clear()
+        self.assertEqual(self.verify().status_code, 403)
+        self.assertFalse(QuickExamSession.objects.exists())
+
     def test_csrf_required_for_every_quick_mutation(self):
         attempt = self.begin()
         self.client.defaults.pop("HTTP_X_CSRFTOKEN")

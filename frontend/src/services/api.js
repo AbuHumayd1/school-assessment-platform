@@ -37,6 +37,7 @@ async function readResponse(response) {
 }
 
 async function send(path, options = {}) {
+  const csrfBootstrap = path.replace(/^\/+/, '') === 'auth/csrf/'
   const method = (options.method || 'GET').toUpperCase()
   const headers = new Headers(options.headers || {})
   const { institutionScoped = false, institutionContextSnapshot, responseType, ...fetchOptions } = options
@@ -57,9 +58,14 @@ async function send(path, options = {}) {
     body,
     headers,
     credentials: 'include',
+    ...(csrfBootstrap ? { cache: 'no-store' } : {}),
   })
   const data = response.ok && responseType === 'blob' ? await response.blob() : await readResponse(response)
-  if (data && typeof data.csrfToken === 'string') csrfToken = data.csrfToken
+  if (response.ok && csrfBootstrap && (typeof data?.csrfToken !== 'string' || !data.csrfToken)) {
+    csrfToken = null
+    throw new ApiError('The server could not prepare a secure request.')
+  }
+  if (response.ok && data && typeof data.csrfToken === 'string') csrfToken = data.csrfToken
   if (institutionScoped && [403, 404].includes(response.status)) {
     window.dispatchEvent(new CustomEvent('workspace-context-invalidated'))
   }

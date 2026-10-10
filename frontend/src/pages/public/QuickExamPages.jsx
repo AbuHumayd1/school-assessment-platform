@@ -15,6 +15,10 @@ import ImmediateScore from '../../components/student/ImmediateScore.jsx'
 const AccessContext = createContext(null)
 const failure = 'We could not complete this request. Check your connection and try again.'
 const expired = 'Your access has expired. Verify your details again to continue.'
+export function quickVerificationError(error) {
+  return error.status === 401 && error.data?.detail === 'The exam details or access credentials are incorrect.'
+    ? 'We could not verify these details. Check them and try again.' : failure
+}
 function useCopy() { const { locale } = usePublicLocale(); return useCallback(text => quickExamTranslate(locale, text), [locale]) }
 
 function AccessProvider({ children }) {
@@ -113,7 +117,7 @@ export function QuickEntryPage() {
     try {
       await verifyQuickAccess(apiFetch, { exam_code: String(data.get('exam_code')), candidate_id: String(data.get('candidate_id')), pin: String(data.get('pin')) })
       form.reset(); navigate('/take-exam/instructions')
-    } catch (requestError) { setError(t([400, 401, 403, 429].includes(requestError.status) ? 'We could not verify these details. Check them and try again.' : failure)) }
+    } catch (requestError) { setError(t(quickVerificationError(requestError))) }
     finally { setBusy(false) }
   }
   return <section className="quick-exam-entry" aria-labelledby="quick-entry-title">

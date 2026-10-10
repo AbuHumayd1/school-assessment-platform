@@ -86,7 +86,8 @@ test('real API transport sends cookies and CSRF on Quick mutations without an in
   const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
   const originalFetch = globalThis.fetch
   try {
-    const { apiFetch, setInstitutionContext } = await server.ssrLoadModule('/src/services/api.js')
+    const { apiFetch, setInstitutionContext, clearSessionContext } = await server.ssrLoadModule('/src/services/api.js')
+    clearSessionContext()
     setInstitutionContext(99)
     const calls = []
     globalThis.fetch = async (url, options) => {
@@ -95,6 +96,10 @@ test('real API transport sends cookies and CSRF on Quick mutations without an in
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
     }
     await verifyQuickAccess(apiFetch, { exam_code: 'TEST', candidate_id: 'TEST', pin: 'test' })
+    assert.ok(calls[0][0].endsWith('/auth/csrf/'))
+    assert.equal(calls[0][1].cache, 'no-store')
+    assert.ok(calls[1][0].endsWith('/quick-exam/verify/'))
+    assert.equal(calls[1][1].headers.get('X-CSRFToken'), 'test-csrf')
     await loadQuickAccess(apiFetch); await startQuickAccess(apiFetch)
     const api = createExamAdapter(apiFetch, { mode: 'quick' })
     await api.saveAttemptAnswer(31, 7, [3]); await api.setAttemptReview(31, 7, true); await api.recordAttemptIntegrity(31, 'page_hide'); await api.submitAttempt(31); await endQuickAccess(apiFetch)
@@ -105,6 +110,37 @@ test('real API transport sends cookies and CSRF on Quick mutations without an in
       if (['POST', 'PUT', 'PATCH'].includes(options.method)) assert.equal(options.headers.get('X-CSRFToken'), 'test-csrf')
       if (!url.endsWith('/verify/')) assert.doesNotMatch(options.body || '', /"pin"|"candidate_id"|"exam_code"/)
     }
+  } finally { globalThis.fetch = originalFetch; await server.close() }
+})
+
+test('fresh Quick entry refuses malformed bootstrap and distinguishes CSRF failures from credential rejection', async () => {
+  const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
+  const originalFetch = globalThis.fetch
+  try {
+    const { apiFetch, clearSessionContext } = await server.ssrLoadModule('/src/services/api.js')
+    const { quickVerificationError } = await server.ssrLoadModule('/src/pages/public/QuickExamPages.jsx')
+    const systemFailure = 'We could not complete this request. Check your connection and try again.'
+    const values = { exam_code: 'TEST', candidate_id: 'TEST', pin: 'test' }
+    for (const body of [{}, { csrfToken: '' }]) {
+      clearSessionContext()
+      const calls = []
+      globalThis.fetch = async (url, options) => {
+        calls.push(url)
+        assert.equal(options.credentials, 'include')
+        assert.equal(options.cache, 'no-store')
+        return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
+      }
+      await assert.rejects(verifyQuickAccess(apiFetch, values), error => quickVerificationError(error) === systemFailure)
+      assert.equal(calls.length, 1)
+      assert.ok(calls[0].endsWith('/auth/csrf/'))
+    }
+    clearSessionContext()
+    globalThis.fetch = async url => url.endsWith('/auth/csrf/')
+      ? new Response(JSON.stringify({ csrfToken: 'backend-token' }), { headers: { 'content-type': 'application/json' } })
+      : new Response('<html>CSRF verification failed. Cookie required.</html>', { status: 403, headers: { 'content-type': 'text/html' } })
+    await assert.rejects(verifyQuickAccess(apiFetch, values), error => error.status === 403 && quickVerificationError(error) === systemFailure)
+    assert.equal(quickVerificationError({ status: 401, data: { detail: 'The exam details or access credentials are incorrect.' } }), 'We could not verify these details. Check them and try again.')
+    for (const status of [400, 401, 403, 429, 500, undefined]) assert.equal(quickVerificationError({ status }), systemFailure)
   } finally { globalThis.fetch = originalFetch; await server.close() }
 })
 

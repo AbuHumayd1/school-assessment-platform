@@ -32,6 +32,15 @@ class SessionAuthenticationApiTests(TestCase):
         self.assertIn("csrftoken", self.client.cookies)
         return response.data["csrfToken"]
 
+    def test_anonymous_csrf_bootstrap_sets_cookie_and_is_not_cacheable(self):
+        response = self.client.get('/api/v1/auth/csrf/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['csrfToken'])
+        self.assertIn('csrftoken', response.cookies)
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertIn('private', response['Cache-Control'])
+        self.assertNotIn('_auth_user_id', self.client.session)
+
     def test_login_establishes_session_and_returns_only_safe_user_fields(self):
         token = self.csrf_token()
         response = self.client.post(
