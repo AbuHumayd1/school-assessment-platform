@@ -4,6 +4,7 @@ import { reconciliationCopy, importMessage } from './ImportBlocks.jsx'
 import { confirmKeyReplacement } from './ImportWorkflow.jsx'
 
 export const answerKeyCopy = {
+  'Add an answer key for these questions, then review before importing. Questions are created only after confirmation.':'أضف مفتاح إجابة لهذه الأسئلة، ثم راجعها قبل الاستيراد. لا تُنشأ الأسئلة إلا بعد التأكيد.',
   ...reconciliationCopy,
   'Answer Key':'مفتاح الإجابة', 'Upload Answer Key':'رفع مفتاح الإجابة', 'Replace Answer Key':'استبدال مفتاح الإجابة',
   'Upload a separate key to this review session. Questions are created only after confirmation.':'ارفع مفتاحًا منفصلًا إلى جلسة المراجعة. لا تُنشأ الأسئلة إلا بعد التأكيد.',
@@ -124,7 +125,7 @@ export default function AnswerKeyPanel({preview,t,busy,onUpload,onSave,onRemove,
     try{const result=await onUpload(file,{sheet,columns});if(result===null)return;setHints({});setFile(null);if(fileInput.current)fileInput.current.value='';setSheet('');setColumns(null);setFilter('needs_review');setSection('');setPage(0)}
     catch(error){setError(matchError(error,t));setHints({sheets:error.data?.sheets,columns:Array.isArray(error.data?.columns)?error.data.columns:null})}
   }
-  return <section className="answer-key-panel"><h3>{t('Answer Key')}</h3><details open={separate&&!preview.separate_answer_key}><summary>{t(separate?(preview.separate_answer_key?'Answer files and template':'Add Answers'):'Import details')}</summary>{separate?<><p>{t('Upload a separate key to this review session. Questions are created only after confirmation.')}</p><p>{t('For the most reliable matching, download this template, enter the correct answers, and upload it here.')}</p><button disabled={busy||!onTemplate} onClick={download}>{t('Download Answer Key Template')}</button><h4>{t('Upload Existing Answer Key')}</h4></>:<p>{t('Check answers')}</p>}
+  return <section className="answer-key-panel"><h3>{t('Answer Key')}</h3><details open={separate&&!preview.separate_answer_key}><summary>{t(separate?(preview.separate_answer_key?'Answer files and template':'Add Answers'):'Import details')}</summary>{separate?<><p>{t('Add an answer key for these questions, then review before importing. Questions are created only after confirmation.')}</p><p>{t('For the most reliable matching, download this template, enter the correct answers, and upload it here.')}</p><button disabled={busy||!onTemplate} onClick={download}>{t('Download Answer Key Template')}</button><h4>{t('Upload Existing Answer Key')}</h4></>:<p>{t('Check answers')}</p>}
     {separate && !preview.separate_answer_key && <p role="status">{t('No answer key uploaded.')}</p>}
     {separate && preview.separate_answer_key && onRemove && <button disabled={busy} onClick={remove}>{t('Remove Answer Key')}</button>}
     {separate && <form onSubmit={upload} className="answer-key-upload"><label>{preview.separate_answer_key?t('Replace Answer Key'):t('Upload Answer Key')}<input ref={fileInput} type="file" accept=".docx,.xlsx,.csv" disabled={busy} onChange={e=>{setFile(e.target.files[0] || null);setHints({});setSheet('');setColumns(null);setError('')}}/></label>

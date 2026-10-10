@@ -25,7 +25,7 @@ test('new Word imports require one explicit mode selection',()=>{
 })
 test('embedded and separate choices explain independent workflows',()=>{
  const markup=html(ImportModeChoice,{t,busy:false})
- assert.match(markup,/already contains its answer key/);assert.match(markup,/then add a DOCX, XLSX or CSV answer key/)
+ assert.match(markup,/already contains its answer key/);assert.match(markup,/Choose both documents/)
 })
 test('persisted mode controls restored review without transient selection',()=>{
  assert.equal(sessionMode(preview),'embedded_key');assert.equal(sessionMode({...preview,import_mode:'separate_key'}),'separate_key')
@@ -33,7 +33,7 @@ test('persisted mode controls restored review without transient selection',()=>{
 })
 test('embedded review hides separate upload and explains manual answer correction',()=>{
  const markup=review('embedded_key')
- assert.match(markup,/Embedded Answer Key/);assert.match(markup,/Upload \u2192 Check \u2192 Import/)
+ assert.match(markup,/Embedded Answer Key/);assert.match(markup,/Review Questions/)
  assert.doesNotMatch(markup,/Upload Answer Key|Replace Answer Key|No answer key uploaded/)
  assert.match(markup,/Confirm Import/);assert.match(markup,/Search questions/)
 })
@@ -71,17 +71,18 @@ test('confirmed deletion returns success and uses session revision',async()=>{
  const result=await manageImportAction(preview,'delete',{confirm:()=>true,fetcher:async(path,options)=>{sent=[path,options];return null}})
  assert.deepEqual(result,{deleted:true});assert.equal(sent[0],'questions/import/docx/session/');assert.deepEqual(sent[1].body,{revision:3})
 })
-test('import cards show useful counts mode key subject updated time and Continue',()=>{
+test('secondary recovery shows useful counts subject and Continue without internal status',()=>{
  const markup=html(ImportCards,{imports:[item],t,busy:false,onContinue:()=>{},onDelete:()=>{}})
- for(const text of ['Questions.docx','Separate Answer Key','Physics','151','148','Needs review','Errors','Answers.xlsx','Last updated','Continue','Delete Import','Unfinished'])assert.ok(markup.includes(text))
+ for(const text of ['Questions.docx','Physics','151','148','Needs attention','Last updated','Continue import','Delete Import','Resume previous import'])assert.ok(markup.includes(text))
+ assert.doesNotMatch(markup,/Unfinished|Import session|<details[^>]* open/)
 })
-test('completed cards never offer deletion and embedded cards do not request a key',()=>{
+test('completed imports are absent from recovery',()=>{
  const markup=html(ImportCards,{imports:[{...item,import_mode:'embedded_key',status:'completed'}],t,busy:false,onContinue:()=>{},onDelete:()=>{}})
- assert.match(markup,/Import completed/);assert.match(markup,/Embedded in question document/);assert.doesNotMatch(markup,/Delete Import|No answer key uploaded/)
+ assert.equal(markup,'')
 })
 test('deleted item disappears from refreshed import collection',()=>{
  const markup=html(ImportCards,{imports:[],t,busy:false,onContinue:()=>{},onDelete:()=>{}})
- assert.match(markup,/No unfinished imports/);assert.doesNotMatch(markup,/Questions.docx|Delete Import/)
+ assert.equal(markup,'')
 })
 test('English bilingual and Arabic RTL structure preserve choice labels',()=>{
  for(const mode of ['english','bilingual','arabic']){
@@ -97,5 +98,5 @@ test('mode survives question metadata saves and deletion refreshes the list',asy
  const source=await readFile(new URL('../src/pages/staff/QuestionsPage.jsx',import.meta.url),'utf8')
  assert.match(source,/manageImportAction\(item,'delete'/);assert.match(source,/result\?\.deleted\)returnToBank/)
  assert.match(source,/onContinue=\{id=>navigate\(`\/app\/questions\/import\/word\/\$\{id\}`\)/)
- assert.match(source,/ImportModeChoice t=\{t\}/);assert.match(source,/if\(result && apply\)setPreview/)
+ assert.match(source,/WordImportForm subjects=\{subjects\} t=\{t\}/);assert.match(source,/if\(result && apply\)setPreview/)
 })

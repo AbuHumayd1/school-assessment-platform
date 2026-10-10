@@ -19,7 +19,7 @@ const html=(component,props)=>renderToStaticMarkup(React.createElement(component
 
 test('Word and CSV import entry and upload state are retained',async()=>{
  const source=await readFile(new URL('../src/pages/staff/QuestionsPage.jsx',import.meta.url),'utf8')
- assert.match(source,/setKind\('csv'\)/);assert.match(source,/setKind\('docx'\)/);assert.match(source,/questions\/import\/docx\/preview\//);assert.match(source,/questions\/import\//);assert.match(source,/Processing…/);assert.match(source,/accept=.*\.docx/)
+ assert.match(source,/setKind\('csv'\)/);assert.match(source,/setKind\('docx'\)/);assert.match(source,/questions\/import\/docx\/preview\//);assert.match(source,/questions\/import\//);assert.match(source,/Processing…/);assert.match(source,/<WordImportForm/)
 })
 test('summary renders all operational counts',()=>{const markup=html(ImportSummary,{preview,t});for(const text of ['Questions detected','Ready','Needs review','Errors','Answers matched','Missing answers','Images','Equations'])assert.ok(markup.includes(text))})
 test('review groups source sections and limits rendering to ten questions',()=>{
@@ -91,8 +91,8 @@ test('nested backend validation messages remain visible',()=>{
  assert.match(importError({status:400,data:{options:{0:{text:['Required text.']}}}},t),/Required text/)
 })
 
-test('success is drafts with bank return and no auto approval',async()=>{
- const source=await readFile(new URL('../src/pages/staff/QuestionsPage.jsx',import.meta.url),'utf8');assert.match(source,/questions imported as drafts/);assert.match(source,/View Question Bank/);assert.doesNotMatch(source,/\/approve\//)
+test('success refreshes the bank with no auto approval',async()=>{
+ const source=await readFile(new URL('../src/pages/staff/QuestionsPage.jsx',import.meta.url),'utf8');assert.match(source,/questions imported successfully/);assert.match(source,/onComplete:returnToBank/);assert.doesNotMatch(source,/\/approve\//)
 })
 test('responsive styles and interface RTL preserve source direction',async()=>{
  const css=await readFile(new URL('../src/pages/staff/question-import.css',import.meta.url),'utf8');assert.match(css,/@media\(max-width:700px\)/);assert.match(css,/margin-inline/)
@@ -230,18 +230,18 @@ test('stable review route reload fetches server session and upload navigates to 
  const routes=await readFile(new URL('../src/App.jsx',import.meta.url),'utf8')
  assert.match(routes,/questions\/import\/word\/:sessionId/)
  assert.match(source,/useParams\(\)/);assert.match(source,/questions\/import\/docx\/\$\{sessionId\}/)
- assert.match(source,/navigate\(`\/app\/questions\/import\/word\/\$\{result.import_session_id\}/)
+ assert.match(source,/onReview\(`\/app\/questions\/import\/word\/\$\{reviewed.import_session_id\}/)
  assert.match(source,/setPreview\(data\)/);assert.match(source,/data.status === 'completed'/)
  assert.match(source,/Resume Imports/);assert.match(source,/recent_imports/)
  assert.doesNotMatch(source,/localStorage|sessionStorage/)
 })
 test('expired retrieval has explicit localized error and completed reload cannot invoke confirm automatically',async()=>{
- assert.equal(importError({status:400,data:{detail:'This import session has expired. Upload the document again.'}},t),'This import session has expired. Upload the document again.')
+ assert.equal(importError({status:400,data:{detail:'This import session has expired. Upload the document again.'}},t),'This import has expired. Upload the documents again.')
  const source=await readFile(new URL('../src/pages/staff/QuestionsPage.jsx',import.meta.url),'utf8')
  assert.match(source,/This import session is unavailable/)
  const recovery=source.slice(source.indexOf('if (sessionId) staffApiFetch'),source.indexOf('function returnToBank'))
  assert.doesNotMatch(recovery,/method:.*POST|confirm\//)
- assert.match(source,/setSuccess\(data\)/)
+ assert.match(source,/data.status === 'completed'\) returnToBank\(data\)/)
 })
 
 
@@ -299,8 +299,8 @@ test('leaving the session or workspace prevents follow-up selection after subjec
 
 test('review expiry uses actual persisted deadline and explains saved changes without a countdown',()=>{
  const markup=html(ImportReview,{preview:{...preview,expires_at:'2026-10-11T10:00:00Z'},t,busy:false,subjects:[]})
- assert.match(markup,/Saved changes can be resumed until the review session expires/)
- assert.match(markup,/Review session expires/);assert.doesNotMatch(markup,/countdown|seconds remaining/)
+ assert.match(markup,/You can leave and resume this review later/)
+ assert.doesNotMatch(markup,/countdown|seconds remaining/)
 })
 
 const bankItem=(id,section,sectionOrder,documentOrder,number,extras={})=>({id,subject:2,text:`electrode ${id}`,status:'draft',question_type:'multiple_choice',source:'DOCX',options:[{id:1,text:'Answer',is_correct:true}],media:[],source_metadata:{section_title:section,section_order:sectionOrder,document_order:documentOrder,question_number:number,...extras}})

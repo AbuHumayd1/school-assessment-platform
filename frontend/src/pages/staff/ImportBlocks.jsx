@@ -2,6 +2,10 @@ import { staffApiFetch } from '../../services/api.js'
 import { useState } from 'react'
 
 export const reconciliationCopy = {
+  'This import has expired. Upload the documents again.':'انتهت صلاحية هذا الاستيراد. ارفع المستندين مجددًا.',
+  'These questions have already been imported. Return to Question Bank.':'تم استيراد هذه الأسئلة بالفعل. عد إلى بنك الأسئلة.',
+  'Choose a question from this document.':'اختر سؤالًا من هذا المستند.',
+  'Start a new import to use a different answer mode.':'ابدأ استيرادًا جديدًا لاستخدام طريقة إجابة مختلفة.',
   'Your import is ready': 'الاستيراد جاهز',
   'Import details': 'تفاصيل الاستيراد',
   'Questions found': 'الأسئلة المكتشفة',
@@ -62,6 +66,10 @@ export const reconciliationCopy = {
 }
 
 export function importMessage(message) {
+  if (message === 'This import session has expired. Upload the document again.') return 'This import has expired. Upload the documents again.'
+  if (message === 'This import session has already been confirmed.') return 'These questions have already been imported. Return to Question Bank.'
+  if (message === 'Select a question from this import session.') return 'Choose a question from this document.'
+  if (message === 'Import mode is fixed for this session. Start a new import to use another mode.') return 'Start a new import to use a different answer mode.'
   if (['Delete the current server preview revision.', 'Remove the key from the current server preview revision.', 'Confirm the current server preview revision.'].includes(message)) return 'This import has changed. Refresh it and try again.'
   if (message==='Use the current revision and valid column mapping.') return 'Check your column choices and refresh this import before trying again.'
   return message

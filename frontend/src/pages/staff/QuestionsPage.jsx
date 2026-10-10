@@ -1,13 +1,13 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useWorkspace } from '../../context/WorkspaceContext.jsx'
 import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 import { staffApiFetch } from '../../services/api.js'
 import QuestionMedia from '../../components/common/QuestionMedia.jsx'
 import { SubjectEmptyState } from './SubjectsPage.jsx'
 import ImportBlocks, { classifyImportBlock, importMessage } from './ImportBlocks.jsx'
-import AnswerKeyPanel, { answerKeyCopy, saveAnswerMatch, uploadAnswerKey, downloadAnswerTemplate } from './AnswerKeyPanel.jsx'
-import { importWorkflowCopy, sessionMode, ImportModeChoice, ImportWorkflowHeading, ImportCards, manageImportAction } from './ImportWorkflow.jsx'
+import AnswerKeyPanel, { answerKeyCopy, saveAnswerMatch, uploadAnswerKey, supportedAnswerKey, downloadAnswerTemplate } from './AnswerKeyPanel.jsx'
+import { importWorkflowCopy, sessionMode, WordImportForm, ImportWorkflowHeading, ImportCards, manageImportAction } from './ImportWorkflow.jsx'
 import './question-import.css'
 
 const copy = {
@@ -106,10 +106,11 @@ export function canConfirmImport(preview, busy = false) {
 }
 export const initialReviewNavigation = { filter: 'all', sectionId: 'all', search: '', page: 0 }
 export function reviewNavigationReducer(state, action) {
+  if (action.type === 'question') return { ...initialReviewNavigation, questionId: action.questionId }
   if (action.type === 'attention') return { ...initialReviewNavigation, filter: action.filter, includedOnly: true }
   if (action.type === 'page') return { ...state, page: Math.max(0, action.page) }
   if (action.type === 'resetPage') return { ...state, page: 0 }
-  if (['filter', 'sectionId', 'search', 'includedOnly'].includes(action.type)) return { ...state, [action.type]: action.value, page: 0 }
+  if (['filter', 'sectionId', 'search', 'includedOnly'].includes(action.type)) return { ...state, questionId: undefined, [action.type]: action.value, page: 0 }
   return state
 }
 export function filterImportQuestions(source, filter = 'all', sectionId = 'all', search = '', includedOnly = false) {
@@ -122,7 +123,7 @@ export function filterImportQuestions(source, filter = 'all', sectionId = 'all',
 }
 export function importReviewPage(preview, navigation = initialReviewNavigation) {
   // Filter the complete session before pagination, including error and excluded items.
-  const questions = filterImportQuestions(preview, navigation.filter, navigation.sectionId, navigation.search, navigation.includedOnly)
+  const questions = filterImportQuestions(preview, navigation.filter, navigation.sectionId, navigation.search, navigation.includedOnly).filter(question => !navigation.questionId || question.id === navigation.questionId)
   const pageCount = Math.ceil(questions.length / 10)
   const page = Math.min(navigation.page, Math.max(0, pageCount - 1))
   return { questions, page, pageCount, total: questions.length,
@@ -135,7 +136,13 @@ function useCopy() {
 }
 
 export function ImportSummary({ preview, t }) {
-  return <><p>{preview.summary.questions_detected} {t('Questions found')} · {preview.summary.answers_matched} {t('Answers matched')}</p><details><summary>{t('Import details')}</summary><dl className="import-summary">{[['Questions detected','questions_detected'],['Ready','ready_count'],['Needs review','review_count'],['Errors','error_count'],['Excluded','excluded_count'],['Answers matched','answers_matched'],['Missing answers','answers_missing'],['Images','media_detected'],['Equations','equations_detected']].map(([name,key]) => <div key={key}><dt>{t(name)}</dt><dd>{preview.summary[key]}</dd></div>)}</dl></details></>
+  return <><p>{preview.summary.questions_detected} {t('Questions detected')} · {preview.summary.ready_count} {t('Ready')} · {preview.confirmation?.attention_count ?? (preview.summary.error_count || 0) + (preview.summary.review_count || 0)} {t('Needs attention')}</p><details><summary>{t('Import details')}</summary><dl className="import-summary">{[['Questions detected','questions_detected'],['Ready','ready_count'],['Needs review','review_count'],['Errors','error_count'],['Excluded','excluded_count'],['Answers matched','answers_matched'],['Missing answers','answers_missing'],['Images','media_detected'],['Equations','equations_detected']].map(([name,key]) => <div key={key}><dt>{t(name)}</dt><dd>{preview.summary[key]}</dd></div>)}</dl></details></>
+}
+
+export function ImportAttention({preview,t,busy,onInspect}) {
+  const issues = preview.sections.flatMap(section => section.questions.filter(question => question.included && (question.readiness !== 'ready' || preview.confirmation.blockers.some(blocker => blocker.question_id === question.id))).map(question => ({section,question})))
+  if (!issues.length) return null
+  return <section className="import-attention" aria-label={t('Questions needing attention')}><h3>{t('Questions needing attention')}</h3><p>{t('Correct the question below, or exclude it before importing.')}</p><ul>{issues.map(({section,question}) => <li key={question.id}><strong>{t('Question')} {question.source_number}</strong> · <bdi>{section.source_title}</bdi><p dir="auto">{question.text.slice(0,160)}</p><ul>{[...question.errors,...question.warnings,...preview.confirmation.blockers.filter(blocker => blocker.question_id === question.id).flatMap(blocker => validationMessages(blocker.details))].map((message,index) => <li key={index}>{t(importMessage(message))}</li>)}</ul><button disabled={busy} onClick={() => onInspect(question.id)}>{t('Review question')} {question.source_number}</button></li>)}</ul></section>
 }
 
 export function importConfirmationCounts(preview) {
@@ -208,7 +215,7 @@ export function CreateSubjectForm({ t, busy, onCreate, onCancel }) {
 export function ReviewQuestion({ question, t, busy, onSave }) {
   const [edit, setEdit] = useState(() => ({ text:question.text, options:question.options, correct_answer:question.correct_answer || '', question_type:question.question_type, included:question.included, reviewed:question.reviewed, equation_replacement:question.equation_replacement || '' }))
   function update(key, value) { setEdit(previous => ({ ...previous, [key]: value })) }
-  return <article className="import-question"><header><strong>{question.source_number}</strong> <span className={`import-readiness import-readiness--${question.readiness}`}>{t(readinessLabel(question.readiness))}</span>{question.modified && <span>{t('Modified')}</span>}{!question.included && <span>{t('Excluded')}</span>}</header>
+  return <article className="import-question" id={`import-question-${question.id}`}><header><strong>{question.source_number}</strong> <span className={`import-readiness import-readiness--${question.readiness}`}>{t(readinessLabel(question.readiness))}</span>{question.modified && <span>{t('Modified')}</span>}{!question.included && <span>{t('Excluded')}</span>}</header>
     <QuestionMedia media={question.media} />
     {question.equations.map((e,i) => <div className="import-equation" key={i}><bdi>{e.representation || t('Equation content requires manual review.')}</bdi>{e.status !== 'converted' && <details><summary>{t('Original equation source')}</summary><pre>{e.source_xml}</pre></details>}</div>)}
     {!!question.errors.length && <ul role="alert">{question.errors.map(e => <li key={e}>{t(e)}</li>)}</ul>}
@@ -234,6 +241,9 @@ export function ImportReview(props) {
   useEffect(() => {
     if (navigation.page !== currentPage) navigate({ type: 'page', page: currentPage })
   }, [navigation.page, currentPage])
+  useEffect(() => {
+    if (navigation.questionId) document.getElementById(`import-question-${navigation.questionId}`)?.scrollIntoView({block:'start'})
+  }, [navigation.questionId])
   return <ImportReviewContent {...props} navigation={navigation} navigate={navigate} />
 }
 export function ImportReviewContent({ preview, t, busy, onChange, onConfirm, onCancel, onCreateSubject, onKeyUpload, onKeySave, onKeyRemove, onTemplate, onClassify, onDelete, subjects, navigation = initialReviewNavigation, navigate = () => {} }) {
@@ -246,14 +256,15 @@ export function ImportReviewContent({ preview, t, busy, onChange, onConfirm, onC
   const collection = importReviewPage(preview, navigation)
   const documentIssues=preview.confirmation.document_issues ?? preview.key_errors.filter(e=>!e.reconciliation)
   const includedCount = preview.sections.flatMap(s => s.questions).filter(q => q.included).length
-  return <section className="import-review"><h2>{t('Import Review')}</h2><ImportWorkflowHeading preview={preview} t={t}/><ImportSummary preview={preview} t={t} /><ImportConfirmation preview={preview} t={t} busy={busy} onConfirm={onConfirm} onAttention={filter => navigate({ type:"attention", filter })} />
-    {preview.expires_at && <p>{t('Saved changes can be resumed until the review session expires.')} {t('Review session expires')}: <bdi>{new Date(preview.expires_at).toLocaleString()}</bdi></p>}
+  return <section className="import-review"><h2>{t('Review Questions')}</h2><ImportWorkflowHeading preview={preview} t={t}/><ImportSummary preview={preview} t={t} /><ImportConfirmation preview={preview} t={t} busy={busy} onConfirm={onConfirm} onAttention={filter => navigate({ type:"attention", filter })} />
+    <ImportAttention preview={preview} t={t} busy={busy} onInspect={questionId => navigate({type:'question',questionId})}/>
+    {preview.expires_at && <p>{t('You can leave and resume this review later.')}</p>}
     {onDelete && <button disabled={busy} onClick={()=>onDelete(preview)}>{t('Delete Import')}</button>}
     <ImportBlocks preview={preview} t={t} busy={busy} onClassify={onClassify}/>
     {onKeySave && <AnswerKeyPanel preview={preview} t={t} busy={busy} onUpload={onKeyUpload} onSave={onKeySave} onRemove={onKeyRemove} onTemplate={onTemplate}/>}
     <form className="import-metadata" onSubmit={e => {e.preventDefault();onChange({metadata:{...preview.metadata,...metadata,subject:preview.subject_id ?? null}})}}><SubjectSelector preview={preview} subjects={subjects} t={t} busy={busy} onChange={onChange} /><label>{t('Difficulty')}<select value={metadata.difficulty || 'medium'} onChange={e => setMetadata({...metadata,difficulty:e.target.value})}>{['easy','medium','hard'].map(v => <option key={v} value={v}>{t(v[0].toUpperCase()+v.slice(1))}</option>)}</select></label><label>{t('Default marks')}<input type="number" min="0.01" step="0.01" value={metadata.default_marks || '1.00'} onChange={e => setMetadata({...metadata,default_marks:e.target.value})} /></label><button disabled={busy}>{t('Save metadata')}</button></form>
     {onCreateSubject && (creatingSubject ? <CreateSubjectForm t={t} busy={busy} onCreate={onCreateSubject} onCancel={() => setCreatingSubject(false)} /> : <button type="button" disabled={busy} onClick={() => setCreatingSubject(true)}>{t('+ Create new subject')}</button>)}
-    <details open={!preview.confirmation.eligible || navigation.filter!=='all'}><summary>{t('Review Questions')}</summary><nav className="import-section-nav" aria-label={t('Section title')}><button aria-current={navigation.sectionId === 'all' ? 'page' : undefined} onClick={() => navigate({ type:'sectionId', value:'all' })}>{t('All sections')} ({preview.summary.questions_detected})</button>{preview.sections.map(s => <button key={s.id} aria-current={s.id === navigation.sectionId ? 'page' : undefined} onClick={() => navigate({ type:'sectionId', value:s.id })}><bdi>{s.source_title}</bdi> ({s.questions.length})</button>)}</nav>
+    <details open={!preview.confirmation.eligible || navigation.filter!=='all' || !!navigation.questionId}><summary>{t('Review Questions')}</summary><nav className="import-section-nav" aria-label={t('Section title')}><button aria-current={navigation.sectionId === 'all' ? 'page' : undefined} onClick={() => navigate({ type:'sectionId', value:'all' })}>{t('All sections')} ({preview.summary.questions_detected})</button>{preview.sections.map(s => <button key={s.id} aria-current={s.id === navigation.sectionId ? 'page' : undefined} onClick={() => navigate({ type:'sectionId', value:s.id })}><bdi>{s.source_title}</bdi> ({s.questions.length})</button>)}</nav>
     <div className="import-actions"><label>{t('Status')}<select value={navigation.filter} onChange={e => navigate({ type:'filter', value:e.target.value })}>{[['all','All'],['ready','Ready'],['needs_review','Needs review'],['error','Errors']].map(([v,l]) => <option key={v} value={v}>{t(l)}</option>)}</select></label><label>{t('Search questions')}<input type="search" value={navigation.search} onChange={e => navigate({ type:'search', value:e.target.value })} /></label><label><input type="checkbox" checked={!!navigation.includedOnly} onChange={e => navigate({ type:'includedOnly', value:e.target.checked })} />{t('Included questions')}</label>{onCancel && <button disabled={busy} onClick={onCancel}>{t('Cancel')}</button>}</div>
     <p>{t('Included questions')}: {includedCount} / {preview.summary.questions_detected}</p>
     {!!documentIssues.length && <details id="import-document-check" open={preview.confirmation.blockers.some(b=>b.code==='document_review')}><summary>{t('Check document content')} ({documentIssues.length})</summary><p>{t('Check the highlighted document content against your Word file, then confirm that you have reviewed it.')}</p><ul>{documentIssues.map((e,i) => <li key={i}>{t('Document position')} {e.source_order}: {e.text ? <bdi dir="auto">{e.text}</bdi> : t('Check this part against your Word file.')}</li>)}</ul><label><input type="checkbox" disabled={busy} checked={!!preview.source_reviewed} onChange={e => onChange({source_reviewed:e.target.checked})} />{t('I checked this content against my Word file.')}</label></details>}
@@ -280,6 +291,42 @@ export async function loadBankQuestions(institutionId, signal, fetcher = staffAp
   next.searchParams.set('institution',institutionId);path=`questions/${next.search}`
  }
  return [...new Map(all.map(q=>[q.id,q])).values()]
+}
+
+export async function processWordImport({formData,subjects,institutionId,signal,onReview=() => {},fetcher=staffApiFetch}) {
+  const invalid = message => Object.assign(new Error(message), {status:400,data:{detail:message}})
+  const active = () => { if (signal?.aborted) throw new DOMException('Request aborted','AbortError') }
+  active()
+  const subject = formData.get('subject'), mode = formData.get('import_mode')
+  const file = formData.get('file'), answerKey = formData.get('answer_key_file')
+  if (!subjects.some(item => String(item.id) === subject)) throw invalid('Select or create a subject before importing.')
+  if (!['embedded_key','separate_key'].includes(mode)) throw invalid('Choose embedded answers or a separate answer key.')
+  if (!file?.size || !/\.docx$/i.test(file.name)) throw invalid('Choose a questions document.')
+  if (mode === 'separate_key' && (!answerKey?.size || !supportedAnswerKey(answerKey))) throw invalid('Use a DOCX, XLSX or CSV answer key up to 2 MB.')
+  const scopedFetch = (path,options) => fetcher(`${path}?institution=${institutionId}`,options)
+  const body = new FormData()
+  body.set('subject',subject);body.set('import_mode',mode);body.set('file',file)
+  const preview = await scopedFetch('questions/import/docx/preview/',{method:'POST',body,signal})
+  active()
+  if (mode === 'embedded_key') {onReview(`/app/questions/import/word/${preview.import_session_id}`);return preview}
+  let reviewed
+  try {
+    reviewed = await uploadAnswerKey(preview,answerKey,{signal,fetcher:scopedFetch})
+    active()
+  } catch (error) {
+    // The questions remain safely resumable if the second request fails.
+    if (error.name !== 'AbortError') error.preview = preview
+    throw error
+  }
+  onReview(`/app/questions/import/word/${reviewed.import_session_id}`)
+  return reviewed
+}
+
+export async function confirmImportToBank({preview,institutionId,onComplete,signal,fetcher=staffApiFetch}) {
+  const receipt = await fetcher(`questions/import/docx/${preview.import_session_id}/confirm/?institution=${institutionId}`,{method:'POST',body:{revision:preview.revision},signal})
+  if (signal?.aborted) throw new DOMException('Request aborted','AbortError')
+  onComplete(receipt)
+  return receipt
 }
 export function questionBankGroups(questions,{subject='',status='',search='',section=''}={}){
  const groups=new Map()
@@ -313,18 +360,25 @@ export function QuestionBank({questions,subjects,t}){
  </section>)}</section>)}</section>
 }
 export function CompletedImport({receipt,t}){return <p>{receipt.original_parsed_count??'\u2014'} {t('Questions detected')} / {receipt.excluded_count??'\u2014'} {t('Excluded')} / {receipt.imported_count} {t('Imported')}</p>}
+export function ImportSuccess({count,label = text => text}) {
+  return <p role="status">{label(`${count} questions imported successfully.`, `تم استيراد ${count} سؤالًا بنجاح.`)}</p>
+}
 
 export default function QuestionsPage() {
   const { sessionId } = useParams(), navigate = useNavigate()
+  const location = useLocation()
   const { currentWorkspace } = useWorkspace()
   const { t, direction, label } = useCopy()
   const institutionId = currentWorkspace.institution.id
   const subjectRequest = useRef(null)
   const keyRequest = useRef(null)
+  const processRequest = useRef(null)
+  useEffect(() => () => processRequest.current?.abort(),[institutionId,sessionId])
   useEffect(()=>{setBusy(false);return()=>{keyRequest.current?.abort();keyRequest.current=null}},[institutionId,sessionId])
   useEffect(() => () => subjectRequest.current?.abort(),[institutionId,sessionId])
   const [kind, setKind] = useState(null), [preview, setPreview] = useState(null), [busy,setBusy] = useState(false)
   const [error,setError] = useState(''), [success,setSuccess] = useState(null), [questions,setQuestions] = useState(null), [subjects,setSubjects] = useState([]), [revision,setRevision] = useState(0), [recent,setRecent] = useState([]), [loadingSession,setLoadingSession] = useState(!!sessionId)
+  useEffect(() => {setSuccess(null);setKind(null)},[institutionId])
   useEffect(() => {
     const controller = new AbortController()
     setSubjects([]);setRecent([]);setQuestions(null);setError('')
@@ -333,25 +387,35 @@ export default function QuestionsPage() {
   },[institutionId,revision])
   useEffect(() => {
     const controller = new AbortController()
-    setPreview(null);setError('');setLoadingSession(!!sessionId)
+    setPreview(null);setError(location.state?.processingError || '');setLoadingSession(!!sessionId)
+    if (location.state?.processingError) navigate(location.pathname,{replace:true,state:null})
     if (sessionId) setSuccess(null)
     if (sessionId) staffApiFetch(`questions/import/docx/${sessionId}/`,{signal:controller.signal})
-      .then(data => {if(controller.signal.aborted)return;if (data.status === 'completed') setSuccess(data);else setPreview(data)})
-      .catch(e => {if(e.name !== 'AbortError') setError(e.status===404 ? t('This import session is unavailable. It may have expired.') : importError(e,t))})
+      .then(data => {if(controller.signal.aborted)return;if (data.status === 'completed') returnToBank(data);else setPreview(data)})
+      .catch(e => {if(e.name !== 'AbortError') setError(e.status===404 ? t('This import is unavailable. It may have expired.') : importError(e,t))})
       .finally(() => {if(!controller.signal.aborted)setLoadingSession(false)})
     return () => controller.abort()
   },[sessionId,institutionId,revision])
-  function returnToBank() { navigate('/app/questions');setKind(null);setPreview(null);setSuccess(null);setRevision(v=>v+1) }
+  function returnToBank(receipt = null) { navigate('/app/questions');setKind(null);setPreview(null);setSuccess(receipt?.imported_count != null ? receipt : null);setRevision(v=>v+1) }
   async function run(action) {
     setBusy(true);setError('')
-    try {await action()} catch(e) {setError(importError(e,t))} finally {setBusy(false)}
+    try {await action()} catch(e) {if(e.name!=='AbortError')setError(importError(e,t))} finally {setBusy(false)}
   }
   async function upload(e) {
     e.preventDefault();const data = new FormData(e.currentTarget)
-    if (kind === 'docx' && !subjects.some(subject => String(subject.id) === data.get('subject'))) { setError(t('Select or create a subject before importing.')); return }
+    const controller = new AbortController();processRequest.current?.abort();processRequest.current=controller
     await run(async () => {
-      const result = await staffApiFetch(kind==='docx' ? 'questions/import/docx/preview/' : 'questions/import/',{method:'POST',body:data})
-      if(kind==='docx')navigate(`/app/questions/import/word/${result.import_session_id}`);else{setSuccess(result.imported_rows);setRevision(v=>v+1)}
+      if (kind !== 'docx') {
+        const result = await staffApiFetch('questions/import/',{method:'POST',body:data,signal:controller.signal})
+        if(!controller.signal.aborted)returnToBank({imported_count:result.imported_rows})
+        return
+      }
+      try {
+        await processWordImport({formData:data,subjects,institutionId,signal:controller.signal,onReview:navigate})
+      } catch (error) {
+        if (error.preview && !controller.signal.aborted) navigate(`/app/questions/import/word/${error.preview.import_session_id}`,{state:{processingError:t('Questions processed, but the answer key could not be added. Add it below to continue.') + ' ' + importError(error,t)}})
+        else throw error
+      }
     })
   }
   function review(changes) {return run(async () => setPreview(await staffApiFetch(`questions/import/docx/${preview.import_session_id}/`,{method:'PATCH',body:{revision:preview.revision,...changes}})))}
@@ -380,15 +444,19 @@ export default function QuestionsPage() {
       throw error
     } finally {setBusy(false)}
   }
-  function confirm() {return run(async () => {const r = await staffApiFetch(`questions/import/docx/${preview.import_session_id}/confirm/`,{method:'POST',body:{revision:preview.revision}});setSuccess(r);setPreview(null)})}
+  function confirm() {
+    const controller = new AbortController();processRequest.current?.abort();processRequest.current=controller
+    return run(() => confirmImportToBank({preview,institutionId,signal:controller.signal,onComplete:returnToBank}))
+  }
   return <div className="question-bank" dir={direction}><h1>{t('Questions')}</h1>{error && <div role="alert">{error}<button onClick={() => setRevision(v=>v+1)}>{t('Retry')}</button></div>}
+    {!sessionId && success && <ImportSuccess count={success.imported_count} label={label}/>}
     {sessionId && <button onClick={returnToBank}>{t('Return to Question Bank')}</button>}
-    {loadingSession ? <p role="status">{t('Loading…')}</p> : sessionId && !preview && success===null && error ? <p>{t('Retry')}</p> : success!==null ? <section role="status"><h2>{success === 'completed' ? t('Import completed') : label(`${typeof success === 'object' ? success.imported_count : success} questions imported as drafts.`, `تم استيراد ${typeof success === 'object' ? success.imported_count : success} سؤالًا كمسودات.`)}</h2>{typeof success === 'object' && <CompletedImport receipt={success} t={t}/>}<button onClick={returnToBank}>{t('View Question Bank')}</button></section> : preview ? <ImportReview key={`${institutionId}:${preview.import_session_id}`} preview={preview} t={t} busy={busy} subjects={subjects} onCreateSubject={createSubject} onDelete={deleteImport} onKeyRemove={()=>updateKey(signal=>manageImportAction(preview,'remove_key',{signal,t}))} onKeyUpload={(file,options)=>updateKey(signal=>uploadAnswerKey(preview,file,{...options,signal}))} onKeySave={(entry,changes)=>updateKey(signal=>saveAnswerMatch(preview,entry,changes,{signal}))} onTemplate={()=>updateKey(signal=>downloadAnswerTemplate(preview,{signal}),false)} onClassify={(block,classification)=>updateKey(signal=>classifyImportBlock(preview,block,classification,{signal}))} onChange={review} onConfirm={confirm} onCancel={returnToBank} /> : <>
+    {loadingSession ? <p role="status">{t('Loading…')}</p> : sessionId && !preview ? <p>{t(error ? 'Retry' : 'Loading…')}</p> : preview ? <ImportReview key={`${institutionId}:${preview.import_session_id}`} preview={preview} t={t} busy={busy} subjects={subjects} onCreateSubject={createSubject} onDelete={deleteImport} onKeyRemove={()=>updateKey(signal=>manageImportAction(preview,'remove_key',{signal,t}))} onKeyUpload={(file,options)=>updateKey(signal=>uploadAnswerKey(preview,file,{...options,signal}))} onKeySave={(entry,changes)=>updateKey(signal=>saveAnswerMatch(preview,entry,changes,{signal}))} onTemplate={()=>updateKey(signal=>downloadAnswerTemplate(preview,{signal}),false)} onClassify={(block,classification)=>updateKey(signal=>classifyImportBlock(preview,block,classification,{signal}))} onChange={review} onConfirm={confirm} onCancel={returnToBank} /> : <>
       <div className="import-actions"><strong>{t('Import Questions')}</strong><button onClick={() => setKind('csv')}>{t('CSV')}</button><button onClick={() => setKind('docx')}>{t('Word document')}</button></div>
-      {kind === 'docx' && <p>{t('New imports can be resumed for 7 days. Save each review change.')}</p>}
-      <ImportCards imports={recent} t={t} busy={busy} onContinue={id=>navigate(`/app/questions/import/word/${id}`)} onDelete={deleteImport}/>
       {questions !== null && subjects.length === 0 && <SubjectEmptyState t={t} />}
-      {kind && <form className="import-upload" onSubmit={upload}>{kind==='docx' && <><h2>{t('Import Questions from Word')}</h2><ImportModeChoice t={t} busy={busy}/><label>{t('Subject')}<select name="subject" required disabled={busy || subjects.length === 0}><option value="">{t('Select a subject')}</option>{subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></label></>}<label>{t(kind==='docx'?'Word document':'CSV')}<input required name="file" type="file" accept={kind==='docx'?'.docx':'.csv'} disabled={busy} /></label><button disabled={busy || (kind==='docx' && subjects.length === 0)}>{t(busy?'Processing…':'Upload')}</button><button type="button" disabled={busy} onClick={() => setKind(null)}>{t('Cancel')}</button></form>}
+      {kind === 'docx' && <WordImportForm subjects={subjects} t={t} busy={busy} onSubmit={upload} onCancel={() => setKind(null)}/>}
+      {kind === 'csv' && <form className="import-upload" onSubmit={upload}><label>{t('CSV')}<input required name="file" type="file" accept=".csv" disabled={busy}/></label><button disabled={busy}>{t(busy?'Processing…':'Upload')}</button><button type="button" disabled={busy} onClick={() => setKind(null)}>{t('Cancel')}</button></form>}
       {questions===null ? <p>{t('Loading\u2026')}</p> : <QuestionBank questions={questions} subjects={subjects} t={t}/>}
+      <ImportCards imports={recent} t={t} busy={busy} onContinue={id=>navigate(`/app/questions/import/word/${id}`)} onDelete={deleteImport}/>
     </>}{busy && preview && <p role="status">{t('Processing…')}</p>}</div>
 }
