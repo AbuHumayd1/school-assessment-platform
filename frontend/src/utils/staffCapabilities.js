@@ -39,3 +39,13 @@ export function canAccessWorkspaceCapability(role, capability, workspaceMode) {
 export function canPrepareWorkspace(role, workspaceMode) {
   return role === 'platform_admin' || workspaceMode !== 'managed_exam'
 }
+
+export function questionWorkflowActions({role, userId, institutionId, workspaceMode}, question) {
+  if (!allWorkspaceRoles.has(role) || !canPrepareWorkspace(role, workspaceMode) || !institutionId ||
+      String(question.institution) !== String(institutionId)) return []
+  const admin = administratorRoles.has(role)
+  if (question.status === 'draft') return admin || (userId != null && String(question.created_by) === String(userId)) ? ['submit-for-review'] : []
+  if (question.status === 'review') return [...(submissionRoles.has(role) ? ['request-changes'] : []), ...(admin ? ['approve'] : [])]
+  if (question.status === 'approved' && admin) return ['archive']
+  return []
+}

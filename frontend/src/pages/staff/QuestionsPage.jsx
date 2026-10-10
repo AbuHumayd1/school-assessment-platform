@@ -1,6 +1,8 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useWorkspace } from '../../context/WorkspaceContext.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
+import { questionWorkflowCopy, QuestionWorkflowControls, QuestionWorkflowToolbar, useQuestionWorkflow } from './QuestionWorkflow.jsx'
 import { useLanguageMode } from '../../context/LanguageModeContext.jsx'
 import { staffApiFetch } from '../../services/api.js'
 import QuestionMedia from '../../components/common/QuestionMedia.jsx'
@@ -15,6 +17,7 @@ const copy = {
   'Create a subject': 'إنشاء مادة',
   ...answerKeyCopy,
   ...importWorkflowCopy,
+  ...questionWorkflowCopy,
  'Source document':'\u0627\u0644\u0645\u0633\u062a\u0646\u062f \u0627\u0644\u0645\u0635\u062f\u0631','Import reference':'\u0645\u0631\u062c\u0639 \u0627\u0644\u0627\u0633\u062a\u064a\u0631\u0627\u062f','Document position':'\u0627\u0644\u0645\u0648\u0636\u0639 \u0641\u064a \u0627\u0644\u0645\u0633\u062a\u0646\u062f',
  'All subjects':'\u062c\u0645\u064a\u0639 \u0627\u0644\u0645\u0648\u0627\u062f','Other questions':'\u0623\u0633\u0626\u0644\u0629 \u0623\u062e\u0631\u0649','Imported':'\u0627\u0644\u0645\u0633\u062a\u0648\u0631\u062f\u0629','Draft':'\u0645\u0633\u0648\u062f\u0629','In review':'\u0642\u064a\u062f \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629','Approved':'\u0645\u0639\u062a\u0645\u062f','Archived':'\u0645\u0624\u0631\u0634\u0641','Multiple select':'\u0627\u062e\u062a\u064a\u0627\u0631\u0627\u062a \u0645\u062a\u0639\u062f\u062f\u0629',
   '+ Create new subject': '+ إنشاء مادة جديدة', 'Create new subject': 'إنشاء مادة جديدة',
@@ -343,20 +346,22 @@ export function questionBankGroups(questions,{subject='',status='',search='',sec
 }
 const bankTypes={multiple_choice:'Multiple choice',multiple_select:'Multiple select',true_false:'True / False'}
 const bankStatuses={draft:'Draft',review:'In review',approved:'Approved',archived:'Archived'}
-export function QuestionBank({questions,subjects,t}){
+export function QuestionBank({questions,subjects,t,context={},onRefresh=async()=>{}}){
  const [filters,setFilters]=useState({subject:'',status:'',search:'',section:''})
+ const workflow=useQuestionWorkflow({context,t,onRefresh})
  const groups=questionBankGroups(questions,filters)
  const sections=[...new Set(questions.filter(q=>!filters.subject||String(q.subject)===filters.subject).map(q=>q.source_metadata?.section_title).filter(Boolean))]
- const change=(key,value)=>setFilters(old=>({...old,[key]:value,...(key==='subject'?{section:''}:{})}))
- return <section className="structured-bank"><div className="bank-filters">
+ const change=(key,value)=>{workflow.select({type:'clear'});setFilters(old=>({...old,[key]:value,...(key==='subject'?{section:''}:{})}))}
+ return <section className="structured-bank"><fieldset disabled={workflow.busy} className="bank-filters" style={{border:0,padding:0,margin:0,minInlineSize:0}}>
  <label>{t('Subject')}<select value={filters.subject} onChange={e=>change('subject',e.target.value)}><option value="">{t('All subjects')}</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name} · {s.code}</option>)}</select></label>
  <label>{t('Status')}<select value={filters.status} onChange={e=>change('status',e.target.value)}><option value="">{t('All')}</option>{['draft','review','approved','archived'].map(s=><option key={s} value={s}>{t(bankStatuses[s])}</option>)}</select></label>
  <label>{t('Section title')}<select value={filters.section} onChange={e=>change('section',e.target.value)}><option value="">{t('All sections')}</option>{sections.map(s=><option key={s}>{s}</option>)}</select></label>
- <label>{t('Search questions')}<input type="search" value={filters.search} onChange={e=>change('search',e.target.value)}/></label></div>
+ <label>{t('Search questions')}<input type="search" value={filters.search} onChange={e=>change('search',e.target.value)}/></label></fieldset>
  <p role="status">{groups.reduce((n,g)=>n+g.questions.length,0)} {t('Questions')}</p>{!groups.length&&<p>{t('No questions found')}</p>}
+ <QuestionWorkflowToolbar questions={groups.flatMap(g=>g.questions)} context={context} t={t} workflow={workflow}/>
  {subjects.filter(s=>groups.some(g=>String(g.subject)===String(s.id))).map(subject=><section key={subject.id} className="bank-subject"><h2><bdi>{subject.name}</bdi></h2><p><bdi>{subject.code}</bdi> · {groups.filter(g=>String(g.subject)===String(subject.id)).reduce((n,g)=>n+g.questions.length,0)} {t('Questions')}</p>
  {groups.filter(g=>String(g.subject)===String(subject.id)).map(g=><section key={g.key} className="bank-section"><h3><bdi>{g.title||t('Other questions')}</bdi> · {g.questions.length} {t('Questions')}</h3>{g.filename&&<p><bdi>{g.filename}</bdi></p>}{g.directions.map(d=><p key={d} dir="auto" className="bank-directions">{d}</p>)}
- {g.questions.map(q=><details className="import-question" key={q.id}><summary>{q.source_metadata?.question_number!=null&&<bdi className="source-number">Q{q.source_metadata.question_number}</bdi>} <bdi>{q.text.slice(0,120)}</bdi> · {t(bankTypes[q.question_type] || q.question_type)} · {t(bankStatuses[q.status] || q.status)}</summary><p dir="auto" style={{whiteSpace:'pre-wrap'}}>{q.text}</p><QuestionMedia media={q.media}/><ol>{q.options.map(o=><li key={o.id}><bdi>{o.text}</bdi>{o.is_correct&&<> · {t('Correct answer')}</>}</li>)}</ol><dl><dt>{t('Source document')}</dt><dd><bdi>{g.filename||q.source||'\u2014'}</bdi></dd>{q.source_metadata?.import_session_id && <><dt>{t('Import reference')}</dt><dd><bdi>{q.source_metadata.import_session_id}</bdi></dd></>}{q.source_metadata?.document_order != null && <><dt>{t('Document position')}</dt><dd>{q.source_metadata.document_order}</dd></>}</dl>{q.source_metadata?.equations?.map((e,i)=><p dir="auto" key={i}>{e.representation||t('Equation content requires manual review.')}</p>)}</details>)}
+ {g.questions.map(q=><div key={q.id}><QuestionWorkflowControls question={q} context={context} t={t} busy={workflow.busy} selected={workflow.selected.includes(q.id)} onSelect={()=>workflow.select({type:'toggle',id:q.id})} onAction={workflow.act}/><details className="import-question"><summary>{q.source_metadata?.question_number!=null&&<bdi className="source-number">Q{q.source_metadata.question_number}</bdi>} <bdi>{q.text.slice(0,120)}</bdi> · {t(bankTypes[q.question_type] || q.question_type)} · {t(bankStatuses[q.status] || q.status)}</summary><p dir="auto" style={{whiteSpace:'pre-wrap'}}>{q.text}</p><QuestionMedia media={q.media}/><ol>{q.options.map(o=><li key={o.id}><bdi>{o.text}</bdi>{o.is_correct&&<> · {t('Correct answer')}</>}</li>)}</ol><dl><dt>{t('Source document')}</dt><dd><bdi>{g.filename||q.source||'\u2014'}</bdi></dd>{q.source_metadata?.import_session_id && <><dt>{t('Import reference')}</dt><dd><bdi>{q.source_metadata.import_session_id}</bdi></dd></>}{q.source_metadata?.document_order != null && <><dt>{t('Document position')}</dt><dd>{q.source_metadata.document_order}</dd></>}</dl>{q.source_metadata?.equations?.map((e,i)=><p dir="auto" key={i}>{e.representation||t('Equation content requires manual review.')}</p>)}</details></div>)}
  </section>)}</section>)}</section>
 }
 export function CompletedImport({receipt,t}){return <p>{receipt.original_parsed_count??'\u2014'} {t('Questions detected')} / {receipt.excluded_count??'\u2014'} {t('Excluded')} / {receipt.imported_count} {t('Imported')}</p>}
@@ -367,7 +372,8 @@ export function ImportSuccess({count,label = text => text}) {
 export default function QuestionsPage() {
   const { sessionId } = useParams(), navigate = useNavigate()
   const location = useLocation()
-  const { currentWorkspace } = useWorkspace()
+  const { currentWorkspace, currentRole } = useWorkspace()
+  const { user } = useAuth()
   const { t, direction, label } = useCopy()
   const institutionId = currentWorkspace.institution.id
   const subjectRequest = useRef(null)
@@ -456,7 +462,7 @@ export default function QuestionsPage() {
       {questions !== null && subjects.length === 0 && <SubjectEmptyState t={t} />}
       {kind === 'docx' && <WordImportForm subjects={subjects} t={t} busy={busy} onSubmit={upload} onCancel={() => setKind(null)}/>}
       {kind === 'csv' && <form className="import-upload" onSubmit={upload}><label>{t('CSV')}<input required name="file" type="file" accept=".csv" disabled={busy}/></label><button disabled={busy}>{t(busy?'Processing…':'Upload')}</button><button type="button" disabled={busy} onClick={() => setKind(null)}>{t('Cancel')}</button></form>}
-      {questions===null ? <p>{t('Loading\u2026')}</p> : <QuestionBank questions={questions} subjects={subjects} t={t}/>}
+      {questions===null ? <p>{t('Loading\u2026')}</p> : <QuestionBank key={`${institutionId}:${currentRole}:${user?.id}`} questions={questions} subjects={subjects} t={t} context={{role:currentRole,userId:user?.id,institutionId,workspaceMode:currentWorkspace.institution.workspace_mode}} onRefresh={async signal=>{const refreshed=await loadBankQuestions(institutionId,signal);if(!signal.aborted)setQuestions(refreshed)}}/>}
       <ImportCards imports={recent} t={t} busy={busy} onContinue={id=>navigate(`/app/questions/import/word/${id}`)} onDelete={deleteImport}/>
     </>}{busy && preview && <p role="status">{t('Processing…')}</p>}</div>
 }
