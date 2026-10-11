@@ -4,10 +4,15 @@ import { readFile } from 'node:fs/promises'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { createServer } from 'vite'
+import { createServer as createViteServer } from 'vite'
+// These tests render server-side only; skip the client dependency pre-bundle.
+const createServer = options => createViteServer({ ...options, plugins: [...(options.plugins || []), {
+  name: 'ssr-only-test-server',
+  configResolved(config) { config.optimizeDeps.include = []; config.optimizeDeps.noDiscovery = true },
+}] })
 import { outcomesCopy, submissionLabels } from '../src/pages/staff/outcomes-copy.js'
 
-const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
+const server = await createServer({ configLoader: 'runner', server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
 const ui = await server.ssrLoadModule('/src/pages/staff/ExamOutcomes.jsx')
 const { ExamSections } = await server.ssrLoadModule('/src/pages/staff/ExamDetailPage.jsx')
 const { CandidateResults } = await server.ssrLoadModule('/src/pages/student/StudentResultsPage.jsx')

@@ -12,10 +12,11 @@ import './outcomes.css'
 
 const date = value => value ? new Date(value).toLocaleString() : '—'
 const value = number => number == null ? '—' : String(number)
-export function OutcomeSummary({ summary, t, performance = false }) {
+export function OutcomeSummary({ summary, t, performance = false, accented = false }) {
   const fields = performance ? [['total_candidates', 'Candidates'], ['results_count', 'Results available'], ['average_percentage', 'Average %'], ['pass_rate', 'Pass rate %'], ['highest_percentage', 'Highest %'], ['lowest_percentage', 'Lowest %']]
     : [['total_candidates', 'Candidates'], ['not_started_count', 'Not started'], ['in_progress_count', 'In progress'], ['submitted_count', 'Submitted'], ['auto_submitted_count', 'Auto-submitted'], ['not_submitted_count', 'Not submitted']]
-  return <div className="outcome-summary">{fields.map(([field, label]) => <div className="exam-panel" key={field}><span>{t(label)}</span><strong>{value(summary[field])}</strong></div>)}</div>
+  const accents = { total_candidates: 'indigo', not_started_count: 'neutral', in_progress_count: 'blue', submitted_count: 'emerald', auto_submitted_count: 'amber', not_submitted_count: 'rose' }
+  return <div className="outcome-summary">{fields.map(([field, label]) => <div className={accented ? `metric-card accent--${accents[field] || 'indigo'}` : 'exam-panel'} key={field}><span>{t(label)}</span><strong>{value(summary[field])}</strong></div>)}</div>
 }
 export function OutcomeTable({ rows, t, performance, onOpen, administrator, onRelease, busy }) {
   const columns = performance ? ['Candidate', 'Candidate ID', 'Score', 'Total', 'Percentage', 'Grade', 'Pass / Fail', 'Status', 'Candidate results', 'Actions'] : ['Candidate', 'Candidate ID', 'Status', 'Started', 'Submitted at', 'Time used', 'Score', 'Actions']

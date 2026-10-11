@@ -1,0 +1,15 @@
+.subjects-page .page-header { margin-block-end: 0; align-items: center; flex-wrap: wrap; }
+.subject-collection { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
+.subject-collection .status-pill { justify-self: start; }
+.subject-collection .subject-code { margin-block-start: .35rem; }
+.subject-code bdi { display: inline-block; padding: .1rem .45rem; border-radius: var(--radius-small); background: var(--accent-surface); color: var(--accent-ink); font-size: .75rem; font-weight: 650; }
+.subject-form { display: grid; gap: 1.25rem; }
+.subject-fields { display: grid; gap: 1rem; padding: 0; margin: 0; border: 0; min-width: 0; }
+.subject-fields label { color: var(--color-text); font-size: .9rem; }
+.subject-form-actions { display: flex; flex-wrap: wrap; justify-content: end; gap: .75rem; }
+.subject-related { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.subject-related a:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+.subjects-page .empty-state { background: var(--color-surface); }
+@media (max-width: 600px) { .subjects-page .page-header { align-items: flex-start; } }
+
+.subjects-page .ui-modal, .subjects-page .button--outline { background: var(--color-surface); color: var(--color-text); }

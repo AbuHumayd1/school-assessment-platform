@@ -184,3 +184,54 @@
   .ui-modal__body,
   .ui-modal__footer { padding-inline: var(--space-4); }
 }
+
+/* Reusable, opt-in workspace surfaces and educational accents. */
+.accent--indigo { --accent-surface: var(--accent-indigo-surface); --accent-ink: var(--accent-indigo-ink); --accent-border: var(--accent-indigo-border); }
+.accent--violet { --accent-surface: var(--accent-violet-surface); --accent-ink: var(--accent-violet-ink); --accent-border: var(--accent-violet-border); }
+.accent--blue { --accent-surface: var(--accent-blue-surface); --accent-ink: var(--accent-blue-ink); --accent-border: var(--accent-blue-border); }
+.accent--teal { --accent-surface: var(--accent-teal-surface); --accent-ink: var(--accent-teal-ink); --accent-border: var(--accent-teal-border); }
+.accent--emerald { --accent-surface: var(--accent-emerald-surface); --accent-ink: var(--accent-emerald-ink); --accent-border: var(--accent-emerald-border); }
+.accent--amber { --accent-surface: var(--accent-amber-surface); --accent-ink: var(--accent-amber-ink); --accent-border: var(--accent-amber-border); }
+.accent--rose { --accent-surface: var(--accent-rose-surface); --accent-ink: var(--accent-rose-ink); --accent-border: var(--accent-rose-border); }
+.accent--neutral { --accent-surface: var(--color-page-bg); --accent-ink: var(--color-muted); --accent-border: var(--color-border); }
+.accent-surface { background: var(--accent-surface, var(--color-brand-light)); border-color: var(--accent-border, var(--color-border)); }
+.accent-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-medium); background: var(--accent-surface, var(--color-brand-light)); color: var(--accent-ink, var(--color-primary)); }
+.accent-edge { border-inline-start: 3px solid var(--accent-border, var(--color-secondary)); }
+.panel-surface { min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-large); background: var(--color-surface); box-shadow: var(--shadow-panel); }
+.entity-card { display: grid; align-content: start; gap: .85rem; padding: 1.25rem; min-width: 0; }
+.entity-card h2, .entity-card p { margin: 0; }
+.entity-card h2 { color: var(--color-brand-dark); font-size: 1.05rem; line-height: 1.5; overflow-wrap: anywhere; }
+.entity-card p { color: var(--color-muted); font-size: .85rem; line-height: 1.6; overflow-wrap: anywhere; }
+.entity-card__heading { display: flex; align-items: start; gap: .85rem; }
+.entity-card__heading > div { min-width: 0; }
+.metric-card { padding: .9rem 1rem; border: 1px solid var(--accent-border, var(--color-border)); border-radius: var(--radius-medium); background: var(--accent-surface, var(--color-surface)); }
+.metric-card > span { color: var(--accent-ink, var(--color-muted)); font-size: .78rem; }
+.metric-card > strong { color: var(--color-brand-dark); font-variant-numeric: tabular-nums; }
+.workspace-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: .85rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-medium); background: var(--color-surface); box-shadow: var(--shadow-panel); }
+.workspace-toolbar label { display: grid; gap: .4rem; min-width: 0; color: var(--color-muted); font-size: .8rem; font-weight: 600; }
+.workspace-toolbar .toolbar-search { flex: 1 1 18rem; }
+.workspace-toolbar .search-field { display: block; position: relative; }
+.workspace-toolbar .search-field__icon { left: auto; inset-inline-start: .85rem; }
+.workspace-toolbar .search-field__input { padding-left: .875rem; padding-inline-start: 2.75rem; }
+.data-surface { border: 1px solid var(--color-border); border-radius: var(--radius-large); background: var(--color-surface); box-shadow: var(--shadow-panel); }
+.data-surface .exam-table th { background: var(--accent-indigo-surface); color: var(--color-muted); font-size: .75rem; font-weight: 650; white-space: nowrap; }
+.data-surface .exam-table :is(th, td) { border-color: var(--color-divider); padding: 1rem; vertical-align: middle; }
+.data-surface .exam-table tbody tr:hover { background: var(--color-brand-light); }
+.data-surface .exam-table tbody tr:last-child td { border-bottom: 0; }
+.data-surface .exam-table td:first-child a { color: var(--color-brand-dark); font-weight: 650; text-decoration: none; }
+.data-surface .exam-table td:first-child a:hover { text-decoration: underline; }
+.data-surface .exam-table small { color: var(--color-muted); font-size: .75rem; }
+.status-pill { display: inline-flex; align-items: center; min-height: 1.6rem; padding: .2rem .65rem; border-radius: var(--radius-pill); background: var(--accent-surface, var(--color-page-bg)); color: var(--accent-ink, var(--color-muted)); font-size: .75rem; font-weight: 650; line-height: 1.5; }
+.status-pill--draft, .status-pill--archived { --accent-surface: var(--color-page-bg); --accent-ink: var(--color-muted); }
+.status-pill--review { --accent-surface: var(--accent-amber-surface); --accent-ink: var(--accent-amber-ink); }
+.status-pill--approved { --accent-surface: var(--accent-blue-surface); --accent-ink: var(--accent-blue-ink); }
+.status-pill--scheduled { --accent-surface: var(--accent-violet-surface); --accent-ink: var(--accent-violet-ink); }
+.surface-interactive { transition: transform var(--transition-standard), box-shadow var(--transition-standard), border-color var(--transition-standard); }
+.surface-interactive:hover { transform: translateY(-1px); box-shadow: var(--shadow-panel-hover); border-color: var(--accent-border, var(--color-secondary)); }
+.workspace-toolbar :is(a,button):focus-visible, .data-surface:focus-visible, .data-surface a:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+@media (max-width: 600px) { .workspace-toolbar label { flex-basis: 100%; width: 100%; } .workspace-toolbar .toolbar-search { flex-basis: 100%; } .data-surface .exam-table :is(th,td) { padding: .8rem; } }
+@media (prefers-reduced-motion: reduce) { .surface-interactive { transition: none; } .surface-interactive:hover { transform: none; } }
+
+.panel-surface.accent-edge { border-inline-start-width: 3px; border-inline-start-color: var(--accent-border, var(--color-secondary)); }
+
+.workspace-toolbar .button--outline { background: var(--color-surface); color: var(--color-brand-dark); }

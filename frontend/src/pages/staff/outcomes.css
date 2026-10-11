@@ -12,3 +12,21 @@
 .outcome-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
 .outcomes .exam-table-scroll { max-width: 100%; overflow-x: auto; }
 @media (max-width: 600px) { .outcome-filters label { width: 100%; } .outcome-filters input, .outcome-filters select { width: 100%; box-sizing: border-box; } }
+
+/* Opt-in institution submissions treatment; result/report screens retain their layout. */
+.submissions-centre .exam-heading h1, .submission-assessment h2 { color: var(--color-brand-dark); }
+.submissions-centre .exam-heading p { color: var(--color-muted); }
+.submissions-centre .workspace-toolbar { margin-block: 0; }
+.submissions-centre .workspace-toolbar .form-control { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border); border-radius: var(--radius-small); }
+.submissions-centre .workspace-toolbar .search-field__input { padding-inline-start: 2.75rem; }
+.submission-assessment { padding-block: 1rem; }
+.submission-assessment > header { padding-block-end: .65rem; margin-block-end: .75rem; border-bottom: 1px solid var(--color-divider); }
+.submission-assessment > header p { margin-block: 0; }
+.submission-assessment h2 { margin-block: 0 .3rem; font-size: 1.15rem; }
+.submission-assessment > p { margin-block: .65rem 0; color: var(--color-muted); font-size: .85rem; }
+.submission-assessment .outcome-summary { gap: .65rem; margin-block-end: 0; }
+.submission-assessment .outcome-summary strong { font-size: 1.7rem; margin-block-start: .4rem; }
+.submission-assessment .exam-actions { margin-block-start: .65rem; }
+.submission-assessment .exam-actions .button { min-height: 2.25rem; padding-inline: var(--space-3); font-size: var(--font-small); }
+
+.submission-assessment .button--outline { background: var(--color-surface); color: var(--color-brand-dark); }

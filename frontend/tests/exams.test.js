@@ -4,8 +4,13 @@ import { readFile } from 'node:fs/promises'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import { createServer } from 'vite'
-const serviceServer = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
+import { createServer as createViteServer } from 'vite'
+// These tests render server-side only; skip the client dependency pre-bundle.
+const createServer = options => createViteServer({ ...options, plugins: [...(options.plugins || []), {
+  name: 'ssr-only-test-server',
+  configResolved(config) { config.optimizeDeps.include = []; config.optimizeDeps.noDiscovery = true },
+}] })
+const serviceServer = await createServer({ configLoader: 'runner', server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
 const { listExams, getExam, examRequest, examFields, credentialState, examError, createOwnerScope, pinDisclosureReducer, localDateValue } = await serviceServer.ssrLoadModule('/src/services/assessments.js')
 await serviceServer.close()
 import { canManageQuickAccess, examWorkflowActions } from '../src/utils/staffCapabilities.js'
@@ -17,7 +22,7 @@ const t = text => text
 const html = (component, props) => renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(component, props)))
 
 async function modules(run) {
-  const server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
+  const server = await createServer({ configLoader: 'runner', server: { middlewareMode: true, hmr: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } })
   try { await run(path => server.ssrLoadModule(path)) } finally { await server.close() }
 }
 
@@ -204,7 +209,7 @@ test('routes remain behind workspace guard and responsive scrolling is contained
 // Resolve the real App/Routes/StaffLayout and real page components. Only session,
 // workspace and async read state are fixtures: native SSR does not run effects.
 async function applicationRoutes(run, obsoleteExams = false) {
-  const server = await createServer({
+  const server = await createServer({ configLoader: 'runner',
     server: { middlewareMode: true, hmr: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
     plugins: [{

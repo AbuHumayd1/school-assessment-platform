@@ -74,3 +74,25 @@ html[lang="ar"] { font-family: 'Noto Sans Arabic', Tahoma, Arial, sans-serif; }
 @media (max-width: 700px) { .madaar-pricing-grid { grid-template-columns: minmax(0, 1fr); } .wordmark__name { font-size: 1.35rem; } .public-header { padding-inline: 1rem; } }
 @media (max-width: 767px) { .exam-interface-controls { grid-column: 1 / -1; justify-content: flex-end; } .exam-runner-header__status .exam-interface-controls .public-language-switcher { grid-column: auto; } }
 @media (prefers-reduced-motion: reduce) { .madaar-audience-line .landing-hero__headline-content { animation: none; } }
+
+/* Soft educational accents: opt-in surfaces, never lifecycle or access state. */
+:root {
+  --accent-indigo-surface: #f0f0fb; --accent-indigo-ink: #3c3b94; --accent-indigo-border: #d9d8f0;
+  --accent-violet-surface: #f5f0fc; --accent-violet-ink: #6a4697; --accent-violet-border: #e2d5f3;
+  --accent-blue-surface: #eef5fd; --accent-blue-ink: #285d92; --accent-blue-border: #d2e3f5;
+  --accent-teal-surface: #edf8f7; --accent-teal-ink: #226863; --accent-teal-border: #cce9e5;
+  --accent-emerald-surface: #eef8f1; --accent-emerald-ink: #296742; --accent-emerald-border: #d1e9d9;
+  --accent-amber-surface: #fcf7ea; --accent-amber-ink: #805f23; --accent-amber-border: #ebdfbc;
+  --accent-rose-surface: #fdf0f3; --accent-rose-ink: #923e59; --accent-rose-border: #f0d4df;
+  --shadow-panel: 0 3px 16px rgb(46 45 126 / 5%); --shadow-panel-hover: 0 6px 20px rgb(46 45 126 / 9%);
+}
+:root[data-theme="dark"] {
+  --accent-indigo-surface: #292e50; --accent-indigo-ink: #c5c9ff; --accent-indigo-border: #485077;
+  --accent-violet-surface: #302540; --accent-violet-ink: #d9b9fa; --accent-violet-border: #574167;
+  --accent-blue-surface: #202f43; --accent-blue-ink: #afd5fb; --accent-blue-border: #395374;
+  --accent-teal-surface: #193637; --accent-teal-ink: #9adbd5; --accent-teal-border: #35595a;
+  --accent-emerald-surface: #1d352b; --accent-emerald-ink: #a5dfbb; --accent-emerald-border: #3b5b49;
+  --accent-amber-surface: #3a3020; --accent-amber-ink: #eed085; --accent-amber-border: #655536;
+  --accent-rose-surface: #3e2632; --accent-rose-ink: #f2b4cc; --accent-rose-border: #684454;
+  --shadow-panel: 0 3px 16px rgb(0 0 0 / 15%); --shadow-panel-hover: 0 6px 20px rgb(0 0 0 / 22%);
+}
